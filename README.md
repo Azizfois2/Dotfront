@@ -8,6 +8,8 @@
 
 ![Dotfront — C edition: the pixel-art wordmark beside the game's blue and red dot icon](assets/banner.png)
 
+Dotfront: a minimalist real-time strategy game in C (inspired by War of Dots) with AI, fog of war and LAN multiplayer.
+ 
 An unofficial fan-made C RTS inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-)
 and [warofdots.net](https://warofdots.net/). Dotfront is not affiliated with or endorsed by the
 original project or its rights holders; “War of Dots” remains the property of its owner.
