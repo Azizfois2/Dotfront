@@ -96,7 +96,7 @@ jobs:
           android/build-apk.sh assembleRelease
           mkdir -p dist
           apk=android/app/build/outputs/apk/release/app-release.apk
-          apksigner verify --verbose "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
           cp "$apk" "dist/war-of-dots-${GITHUB_REF_NAME:-snapshot}-android.apk"
       - uses: actions/upload-artifact@v4
         with:
