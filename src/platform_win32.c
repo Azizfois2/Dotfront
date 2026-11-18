@@ -160,6 +160,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 Platform *plat_open(const char *title, int w, int h) {
+    SetProcessDPIAware();   /* keep 1280x720 as physical pixels on scaled desktops */
     Platform *p = calloc(1, sizeof(*p));
     if (!p) return NULL;
     p->w = w;
