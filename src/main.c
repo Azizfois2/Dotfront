@@ -1,11 +1,4 @@
 #define _POSIX_C_SOURCE 200809L
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#include <X11/keysym.h>
-#include <X11/XKBlib.h>
-#include <X11/extensions/XShm.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,16 +8,9 @@
 #include "game.h"
 #include "ai.h"
 #include "render.h"
+#include "platform.h"
 
-#define WIN_W 1280
-#define WIN_H 720
 #define SIM_DT (1.0f / 60.0f)
-
-static double now_sec(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
-}
 
 /* ================================================================== */
 /* Headless AI-vs-AI test                                              */
@@ -107,7 +93,7 @@ typedef struct {
     Vec2 path[VIEW_PATH_MAX];
     int plen;
     Vec2 last_path_pt;
-    uint8_t down[256];
+    uint8_t down[PK_COUNT];
 } Input;
 
 static void clamp_camera(View *v) {
@@ -143,20 +129,18 @@ static void apply_path(Game *g, Input *in) {
 }
 
 static void handle_key(Game *g, View *v, Renderer *r, Input *in,
-                       KeySym ks, uint32_t *seed, int *running) {
-    switch (ks) {
-    case XK_Escape:
+                       PlatKey key, uint32_t *seed, int *running) {
+    switch (key) {
+    case PK_ESC:
         game_clear_selection(g);
         break;
-    case XK_z:
-    case XK_Z:
+    case PK_Z:
         game_select_all(g);
         break;
-    case XK_space:
+    case PK_SPACE:
         if (g->winner < 0) g->paused = !g->paused;
         break;
-    case XK_r:
-    case XK_R: {
+    case PK_R: {
         uint32_t s = (*seed) * 1664525u + 1013904223u;
         *seed = s;
         game_init(g, s);
@@ -169,8 +153,7 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
         printf("new game, seed %u\n", s);
         break;
     }
-    case XK_q:
-    case XK_Q:
+    case PK_Q:
         *running = 0;
         break;
     default:
@@ -194,66 +177,13 @@ int main(int argc, char **argv) {
     }
     if (headless > 0.0f) return run_headless(seed, headless);
 
-    Display *dpy = XOpenDisplay(NULL);
-    if (!dpy) {
-        fprintf(stderr, "cannot open X display (try --headless)\n");
+    Platform *plat = plat_open("WAR OF DOTS - C", WIN_W, WIN_H);
+    if (!plat) {
+        fprintf(stderr, "cannot open window (try --headless)\n");
         return 1;
     }
-    int scr = DefaultScreen(dpy);
-    Window win = XCreateSimpleWindow(dpy, RootWindow(dpy, scr), 0, 0, WIN_W, WIN_H,
-                                     0, 0, 0);
-    XSelectInput(dpy, win, ExposureMask | KeyPressMask | KeyReleaseMask |
-                 ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
-                 StructureNotifyMask);
-    Atom wm_delete = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
-    XSetWMProtocols(dpy, win, &wm_delete, 1);
-    XStoreName(dpy, win, "WAR OF DOTS - C");
-    XMapWindow(dpy, win);
+    FB fb = { .w = WIN_W, .h = WIN_H, .px = plat_pixels(plat) };
 
-    Bool detectable;
-    XkbSetDetectableAutoRepeat(dpy, True, &detectable);
-
-    GC gc = XCreateGC(dpy, win, 0, NULL);
-    FB fb = { .w = WIN_W, .h = WIN_H };
-    XImage *img[2] = { NULL, NULL };
-    XShmSegmentInfo shm[2];
-    uint32_t *shmbuf[2] = { NULL, NULL };
-    int nbuf = 0, shm_base = 0;
-    int freebuf[2] = { 1, 1 };
-    memset(shm, 0, sizeof(shm));
-    /* shared-memory presentation avoids a 3.7 MB client->server copy each frame */
-    if (XShmQueryExtension(dpy)) {
-        shm_base = XShmGetEventBase(dpy);
-        for (int i = 0; i < 2; i++) {
-            img[i] = XShmCreateImage(dpy, DefaultVisual(dpy, scr),
-                                     (unsigned)DefaultDepth(dpy, scr), ZPixmap,
-                                     NULL, &shm[i], WIN_W, WIN_H);
-            if (!img[i] || img[i]->bytes_per_line != WIN_W * 4) break;
-            shm[i].shmid = shmget(IPC_PRIVATE,
-                                  (size_t)img[i]->bytes_per_line * (size_t)img[i]->height,
-                                  IPC_CREAT | 0600);
-            if (shm[i].shmid < 0) break;
-            shm[i].shmaddr = shmat(shm[i].shmid, NULL, 0);
-            shm[i].readOnly = False;
-            if (shm[i].shmaddr == (char *)-1) break;
-            img[i]->data = shm[i].shmaddr;
-            if (!XShmAttach(dpy, &shm[i])) break;
-            XSync(dpy, False);
-            shmctl(shm[i].shmid, IPC_RMID, 0);
-            shmbuf[i] = (uint32_t *)img[i]->data;
-            nbuf++;
-        }
-    }
-    if (nbuf == 0) {
-        fb.px = malloc((size_t)WIN_W * WIN_H * sizeof(uint32_t));
-        if (!fb.px) { fprintf(stderr, "out of memory\n"); return 1; }
-        img[0] = XCreateImage(dpy, DefaultVisual(dpy, scr),
-                              (unsigned)DefaultDepth(dpy, scr), ZPixmap, 0,
-                              (char *)fb.px, WIN_W, WIN_H, 32, 0);
-    } else {
-        fb.px = shmbuf[0];
-    }
-    int curbuf = 0;
     Game g;
     game_init(&g, seed);
     g.ai_enabled[1] = 1;
@@ -268,51 +198,35 @@ int main(int argc, char **argv) {
     memset(&in, 0, sizeof(in));
 
     int running = 1;
-    double last = now_sec();
-    int redraw = 1;
+    double last = plat_time();
 
     while (running) {
-        while (XPending(dpy)) {
-            XEvent e;
-            XNextEvent(dpy, &e);
-            if (nbuf > 0 && e.type == shm_base + ShmCompletion) {
-                XShmCompletionEvent *ce = (XShmCompletionEvent *)&e;
-                for (int i = 0; i < nbuf; i++)
-                    if ((shm[i].shmseg == ce->shmseg))
-                        freebuf[i] = 1;
-                continue;
-            }
-            switch (e.type) {
-            case ClientMessage:
-                if ((Atom)e.xclient.data.l[0] == wm_delete) running = 0;
+        PlatEvent ev;
+        while (plat_poll(plat, &ev)) {
+            switch (ev.type) {
+            case PEV_QUIT:
+                running = 0;
                 break;
-            case Expose:
-                redraw = 1;
-                break;
-            case KeyPress: {
-                KeySym ks = XLookupKeysym(&e.xkey, 0);
-                if (e.xkey.keycode < 256 && !in.down[e.xkey.keycode]) {
-                    in.down[e.xkey.keycode] = 1;
-                    if (ks == XK_Shift_L || ks == XK_Shift_R) in.shift_down = 1;
-                    else handle_key(&g, &v, &r, &in, ks, &seed, &running);
+            case PEV_KEYDOWN:
+                if (ev.key > PK_NONE && ev.key < PK_COUNT && !in.down[ev.key]) {
+                    in.down[ev.key] = 1;
+                    if (ev.key == PK_SHIFT) in.shift_down = 1;
+                    else handle_key(&g, &v, &r, &in, ev.key, &seed, &running);
                 }
                 break;
-            }
-            case KeyRelease: {
-                KeySym ks = XLookupKeysym(&e.xkey, 0);
-                if (e.xkey.keycode < 256) in.down[e.xkey.keycode] = 0;
-                if (ks == XK_Shift_L || ks == XK_Shift_R) in.shift_down = 0;
+            case PEV_KEYUP:
+                if (ev.key > PK_NONE && ev.key < PK_COUNT) in.down[ev.key] = 0;
+                if (ev.key == PK_SHIFT) in.shift_down = 0;
                 break;
-            }
-            case ButtonPress: {
-                int mx = e.xbutton.x, my = e.xbutton.y;
-                if (e.xbutton.button == Button1) {
+            case PEV_MOUSEDOWN: {
+                int mx = ev.x, my = ev.y;
+                if (ev.button == 1) {
                     in.left_down = 1;
                     in.press_x = mx;
                     in.press_y = my;
                     in.press_world = mouse_world(&v, mx, my);
                     in.dragging_box = 0;
-                } else if (e.xbutton.button == Button3) {
+                } else if (ev.button == 3) {
                     in.right_down = 1;
                     if (g.nsel > 0 ||
                         (g.sel_city >= 0 && g.cities[g.sel_city].owner == P_BLUE)) {
@@ -321,25 +235,16 @@ int main(int argc, char **argv) {
                         in.path[in.plen++] = mouse_world(&v, mx, my);
                         in.last_path_pt = in.path[0];
                     }
-                } else if (e.xbutton.button == Button2) {
+                } else if (ev.button == 2) {
                     in.middle_down = 1;
                     in.last_mx = mx;
                     in.last_my = my;
-                } else if (e.xbutton.button == Button4 || e.xbutton.button == Button5) {
-                    float old = v.zoom;
-                    float nz = old * (e.xbutton.button == Button4 ? 1.15f : 1.0f / 1.15f);
-                    nz = clampf(nz, 0.65f, 3.0f);
-                    Vec2 w = mouse_world(&v, mx, my);
-                    v.zoom = nz;
-                    v.cam.x = w.x - (float)mx / nz;
-                    v.cam.y = w.y - (float)my / nz;
-                    clamp_camera(&v);
                 }
                 break;
             }
-            case ButtonRelease: {
-                int mx = e.xbutton.x, my = e.xbutton.y;
-                if (e.xbutton.button == Button1) {
+            case PEV_MOUSEUP: {
+                int mx = ev.x, my = ev.y;
+                if (ev.button == 1) {
                     if (in.dragging_box) {
                         game_box_select(&g, in.press_world, mouse_world(&v, mx, my),
                                         in.shift_down);
@@ -348,19 +253,19 @@ int main(int argc, char **argv) {
                     }
                     in.left_down = 0;
                     in.dragging_box = 0;
-                } else if (e.xbutton.button == Button3) {
+                } else if (ev.button == 3) {
                     if (in.path_active) {
                         apply_path(&g, &in);
                         in.path_active = 0;
                     }
                     in.right_down = 0;
-                } else if (e.xbutton.button == Button2) {
+                } else if (ev.button == 2) {
                     in.middle_down = 0;
                 }
                 break;
             }
-            case MotionNotify: {
-                int mx = e.xmotion.x, my = e.xmotion.y;
+            case PEV_MOUSEMOVE: {
+                int mx = ev.x, my = ev.y;
                 if (in.left_down) {
                     int dx = mx - in.press_x, dy = my - in.press_y;
                     if (dx * dx + dy * dy > 36) in.dragging_box = 1;
@@ -381,25 +286,40 @@ int main(int argc, char **argv) {
                 in.last_my = my;
                 break;
             }
+            case PEV_WHEEL: {
+                float nz = v.zoom;
+                if (ev.wheel > 0) {
+                    for (int i2 = 0; i2 < ev.wheel; i2++) nz *= 1.15f;
+                } else {
+                    for (int i2 = 0; i2 > ev.wheel; i2--) nz /= 1.15f;
+                }
+                nz = clampf(nz, 0.65f, 3.0f);
+                Vec2 w = mouse_world(&v, ev.x, ev.y);
+                v.zoom = nz;
+                v.cam.x = w.x - (float)ev.x / nz;
+                v.cam.y = w.y - (float)ev.y / nz;
+                clamp_camera(&v);
+                break;
+            }
             default:
                 break;
             }
         }
 
-        double t = now_sec();
+        double t = plat_time();
         float dt = (float)(t - last);
         last = t;
         if (dt > 0.1f) dt = 0.1f;
 
         /* camera keys */
         float pan = 520.0f * dt / v.zoom;
-        if (in.down[XKeysymToKeycode(dpy, XK_a)] || in.down[XKeysymToKeycode(dpy, XK_Left)])
+        if (in.down[PK_A] || in.down[PK_LEFT])
             v.cam.x -= pan;
-        if (in.down[XKeysymToKeycode(dpy, XK_d)] || in.down[XKeysymToKeycode(dpy, XK_Right)])
+        if (in.down[PK_D] || in.down[PK_RIGHT])
             v.cam.x += pan;
-        if (in.down[XKeysymToKeycode(dpy, XK_w)] || in.down[XKeysymToKeycode(dpy, XK_Up)])
+        if (in.down[PK_W] || in.down[PK_UP])
             v.cam.y -= pan;
-        if (in.down[XKeysymToKeycode(dpy, XK_s)] || in.down[XKeysymToKeycode(dpy, XK_Down)])
+        if (in.down[PK_S] || in.down[PK_DOWN])
             v.cam.y += pan;
         /* A is also "select all"; camera pan only while held is fine, but avoid
          * panning on a quick tap: only pan if the key is still down next frames. */
@@ -417,71 +337,17 @@ int main(int argc, char **argv) {
         v.plen = in.plen;
         memcpy(v.path, in.path, sizeof(Vec2) * (size_t)in.plen);
 
-        /* select a back buffer BEFORE drawing; never draw into the visible one */
-        if (nbuf > 0) {
-            if (!freebuf[curbuf]) {
-                XEvent e;
-                XNextEvent(dpy, &e);
-                if (e.type == shm_base + ShmCompletion) {
-                    XShmCompletionEvent *ce = (XShmCompletionEvent *)&e;
-                    for (int i = 0; i < nbuf; i++)
-                        if (shm[i].shmseg == ce->shmseg)
-                            freebuf[i] = 1;
-                } else if (e.type == ClientMessage) {
-                    if ((Atom)e.xclient.data.l[0] == wm_delete) running = 0;
-                } else {
-                    XPutBackEvent(dpy, &e);
-                }
-                if (!freebuf[curbuf]) {
-                    XSync(dpy, False);
-                    freebuf[0] = freebuf[1] = 1;
-                }
-            }
-            fb.px = shmbuf[curbuf];
-        }
-        (void)redraw;
+        fb.px = plat_pixels(plat);
         render_world(&fb, &g, &r, &v);
         render_hud(&fb, &g, &r, &v);
-        if (nbuf > 0) {
-            if (nbuf > 1) {
-                XShmPutImage(dpy, win, gc, img[curbuf], 0, 0, 0, 0,
-                             WIN_W, WIN_H, True);
-                freebuf[curbuf] = 0;
-                curbuf ^= 1;
-            } else {
-                XShmPutImage(dpy, win, gc, img[0], 0, 0, 0, 0,
-                             WIN_W, WIN_H, False);
-                XSync(dpy, False);
-            }
-            XFlush(dpy);
-        } else {
-            XPutImage(dpy, win, gc, img[0], 0, 0, 0, 0, WIN_W, WIN_H);
-            XFlush(dpy);
-        }
+        plat_present(plat);
 
-        double frame_end = now_sec();
+        double frame_end = plat_time();
         double spare = SIM_DT - (frame_end - t);
-        if (spare > 0.0) {
-            struct timespec ts;
-            ts.tv_sec = (time_t)spare;
-            ts.tv_nsec = (long)((spare - (double)ts.tv_sec) * 1e9);
-            nanosleep(&ts, NULL);
-        }
+        if (spare > 0.0) plat_sleep(spare);
     }
 
     render_free(&r);
-    if (nbuf > 0) {
-        for (int i = 0; i < nbuf; i++) {
-            XShmDetach(dpy, &shm[i]);
-            shmdt(shm[i].shmaddr);
-            img[i]->data = NULL;
-            free(img[i]);
-        }
-    } else {
-        XDestroyImage(img[0]);
-    }
-    XFreeGC(dpy, gc);
-    XDestroyWindow(dpy, win);
-    XCloseDisplay(dpy);
+    plat_close(plat);
     return 0;
 }

@@ -3,8 +3,9 @@
 A small single-player RTS in C, inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-) in this repository.
 You command blue dots, the computer commands red dots, and the whole match runs offline on one machine.
 
-No game engine, no assets, no image libraries: the game draws into a 32-bit framebuffer and
-presents it through Xlib, so the only build dependencies are a C compiler, `make`, and `libX11`.
+No game engine, no assets, no image libraries: the game draws into a 32-bit framebuffer and a
+small platform layer presents it. Linux uses Xlib/MIT-SHM, Windows uses GDI, and the game core
+is shared. Build dependencies are just a C compiler, `make`, and the platform SDK headers.
 
 ![screenshot](screenshot.png)
 
@@ -27,16 +28,25 @@ presents it through Xlib, so the only build dependencies are a C compiler, `make
 
 ```sh
 cd c_rts
-make
+make            # Linux / X11
+make windows    # Windows .exe (cross-compile with mingw-w64)
 ```
 
-Requirements: `gcc` (or clang), `make`, and the X11 development headers
-(Debian/Ubuntu: `sudo apt install build-essential libx11-dev libxext-dev`).
+Requirements:
+
+- Linux: `gcc` (or clang), `make`, X11 headers
+  (Debian/Ubuntu: `sudo apt install build-essential libx11-dev libxext-dev`).
+- Windows: `make windows` from Linux with `x86_64-w64-mingw32-gcc` installed
+  (`sudo apt install mingw-w64`). On Windows itself, use MSYS2/MinGW and
+  `make windows MINGW=gcc`. No SDL or other runtime DLLs are needed.
+
+The Windows executable is `wod_c.exe`; everything else is identical.
 
 ## Play
 
 ```sh
-./wod_c                 # new random match vs the red AI
+./wod_c                 # Linux
+wod_c.exe               # Windows
 ./wod_c --seed 42       # reproducible map
 ```
 
@@ -95,8 +105,10 @@ src/render.h/c terrain pre-render, terrain blit, units, cities, paths, selection
 src/hud.c      top bar, minimap, help, selection info, pause/win overlays
 src/gfx.h/c    framebuffer primitives: AA discs, thick lines, triangles, text
 src/font.h/c   5x7 bitmap font
-src/main.c     X11 window, double-buffered MIT-SHM presentation, input, camera,
-               fixed-step loop, headless mode
+src/platform.h      window/presentation/event/time interface shared by all builds
+src/platform_x11.c  X11 backend: Xlib window + double-buffered MIT-SHM (XImage fallback)
+src/platform_win32.c Win32 backend: GDI window + top-down DIB, no external runtime
+src/main.c          camera, event handling, fixed-step loop, headless mode
 ```
 
 Simulation is fixed at 60 Hz (`SIM_DT`), display syncs to the same rate. All match tuning lives
@@ -106,8 +118,13 @@ Rendering runs at 1280×720 but is resolution-independent — change `WIN_W`/`WI
 ## Known limitations / next steps
 
 - The AI has full map knowledge (fog applies to the player only).
+- Windows support is compile-tested via mingw-w64 but was not run on a Windows
+  machine in this environment.
+- macOS still needs a Cocoa (or SDL) backend; only the ~250-line platform layer
+  would change (`plat_open`, `plat_pixels`, `plat_present`, `plat_poll`,
+  `plat_time`, `plat_sleep`).
 - One AI personality and no difficulty levels; it is deliberately aggressive.
 - No sound, no map/save loading, no network play.
 - The AI is tuned by simulation, not by long human playtesting.
-- `libX11` only: macOS/Windows would need a different presenter (`render_world`/`render_hud`
-  are independent of the window system and only need a pixel buffer).
+- The renderer only needs a pixel buffer, so new platforms implement the small
+  `src/platform.h` interface rather than touching the game or HUD.
