@@ -68,6 +68,7 @@ int  game_visible_unit_count(const Game *g, int player, int owner);
 void units_update(Game *g, float dt);
 int  game_spawn_unit(Game *g, int owner, Vec2 pos, int type);
 void game_set_city_production(Game *g, int type);
+void game_queue_city_production(Game *g, int type);
 void game_fortify_city(Game *g);
 void game_order_attack_move(Game *g, Vec2 target);
 void game_order_hold(Game *g);

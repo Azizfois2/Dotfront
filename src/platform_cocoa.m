@@ -6,6 +6,10 @@
 #include <stdio.h>
 #include <time.h>
 
+#ifndef NSEventModifierFlagControl
+#define NSEventModifierFlagControl (1UL << 18)
+#endif
+
 struct Platform {
     NSWindow          *win;
     NSView            *view;
@@ -16,6 +20,7 @@ struct Platform {
     int                w, h;
     int                quit;
     int                shift_down;
+    int                ctrl_down;
     double             wheel_acc;
 
     PlatEvent q[256];
@@ -65,12 +70,16 @@ static PlatKey key_from_event(NSEvent *e) {
         case '1':  return PK_1;
         case '2':  return PK_2;
         case '3':  return PK_3;
+        case '4':  return PK_4;
+        case '5':  return PK_5;
+        case '6':  return PK_6;
         case 'm':  return PK_M;
         case 'g':  return PK_G;
         case 'h':  return PK_H;
         case 'x':  return PK_X;
         case 'c':  return PK_C;
         case 'f':  return PK_F;
+        case 't':  return PK_T;
         default:   break;
         }
     }
@@ -85,6 +94,8 @@ static PlatKey key_from_event(NSEvent *e) {
     case 126: return PK_UP;
     case 56:
     case 60:  return PK_SHIFT;
+    case 59:
+    case 62:  return PK_CTRL;
     default:  return PK_NONE;
     }
 }
@@ -120,6 +131,11 @@ static PlatKey key_from_event(NSEvent *e) {
     if ((int)down != self.plat->shift_down) {
         self.plat->shift_down = (int)down;
         push_key(self.plat, PK_SHIFT, down ? PEV_KEYDOWN : PEV_KEYUP);
+    }
+    BOOL ctrl = ([e modifierFlags] & NSEventModifierFlagControl) != 0;
+    if ((int)ctrl != self.plat->ctrl_down) {
+        self.plat->ctrl_down = (int)ctrl;
+        push_key(self.plat, PK_CTRL, ctrl ? PEV_KEYDOWN : PEV_KEYUP);
     }
 }
 

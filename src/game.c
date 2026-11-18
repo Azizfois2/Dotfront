@@ -196,6 +196,7 @@ static void update_cities(Game *g, float dt) {
                 c->spawn_t = 0.0f;
                 c->has_rally = 0;
                 c->prod_type = UT_SOLDIER;
+                c->qlen = 0;
                 c->fortified = 0;
                 c->fort_t = 0.0f;
                 g->captures[contender]++;
@@ -228,6 +229,11 @@ static void update_cities(Game *g, float dt) {
                         c->pos.y + rnd_range(&g->w.seed, -6.0f, 6.0f));
             int id = game_spawn_unit(g, c->owner, p, pt);
             if (id >= 0) owned_count[c->owner]++;
+            if (id >= 0 && c->qlen > 0) {
+                c->prod_type = c->queue[0];
+                for (int q = 1; q < c->qlen; q++) c->queue[q - 1] = c->queue[q];
+                c->qlen--;
+            }
             if (id >= 0 && c->has_rally) {
                 Unit *u = &g->units[id];
                 int rn = world_route(&g->w, c->pos, c->rally, u->path, MAX_PATH);
@@ -447,26 +453,28 @@ void game_clear_selection(Game *g) {
 }
 
 void game_click_select(Game *g, Vec2 world, int additive) {
-    int best = -1;
-    float best_d = 16.0f;
-    for (int i = 0; i < MAX_UNITS; i++) {
-        Unit *u = &g->units[i];
-        if (!u->alive || u->owner != g->local) continue;
-        float d = vdist(u->pos, world);
-        if (d < best_d) { best = i; best_d = d; }
+    /* Prefer the city when the click lands on its disc. Units standing on the
+     * city can still be box-selected or picked by clicking beside it. */
+    int city = -1;
+    for (int i = 0; i < g->ncity; i++) {
+        if (vdist(g->cities[i].pos, world) <= CITY_R + 8.0f) { city = i; break; }
     }
-    if (best >= 0) {
+    if (city >= 0) {
         if (!additive) memset(g->selected, 0, sizeof(g->selected));
-        g->selected[best] = additive ? !g->selected[best] : 1;
-        g->sel_city = -1;
+        g->sel_city = city;
     } else {
-        int city = -1;
-        for (int i = 0; i < g->ncity; i++) {
-            if (vdist(g->cities[i].pos, world) <= CITY_R + 8.0f) { city = i; break; }
+        int best = -1;
+        float best_d = 16.0f;
+        for (int i = 0; i < MAX_UNITS; i++) {
+            Unit *u = &g->units[i];
+            if (!u->alive || u->owner != g->local) continue;
+            float d = vdist(u->pos, world);
+            if (d < best_d) { best = i; best_d = d; }
         }
-        if (city >= 0) {
-            memset(g->selected, 0, sizeof(g->selected));
-            g->sel_city = city;
+        if (best >= 0) {
+            if (!additive) memset(g->selected, 0, sizeof(g->selected));
+            g->selected[best] = additive ? !g->selected[best] : 1;
+            g->sel_city = -1;
         } else if (!additive) {
             game_clear_selection(g);
         }
@@ -654,12 +662,26 @@ void game_set_city_production(Game *g, int type) {
     game_notice(g, buf);
 }
 
+void game_queue_city_production(Game *g, int type) {
+    if (g->sel_city < 0 || type < 0 || type >= UT_COUNT) return;
+    City *c = &g->cities[g->sel_city];
+    if (c->owner != g->local) return;
+    if (c->qlen >= CITY_QUEUE_MAX) {
+        game_notice(g, "PRODUCTION QUEUE FULL");
+        return;
+    }
+    c->queue[c->qlen++] = (uint8_t)type;
+    char buf[48];
+    snprintf(buf, sizeof(buf), "QUEUED %s (%d)", UNIT_TYPE[type].name, c->qlen);
+    game_notice(g, buf);
+}
+
 /* ------------------------------------------------------------------ */
 /* Save / load                                                         */
 /* ------------------------------------------------------------------ */
 
 #define SAVE_MAGIC   0x574F4443u   /* WODC */
-#define SAVE_VERSION 7u
+#define SAVE_VERSION 8u
 
 void game_notice(Game *g, const char *text) {
     snprintf(g->notice, sizeof(g->notice), "%s", text);
@@ -694,6 +716,9 @@ static int valid_saved_game(const Game *g) {
         const City *c = &g->cities[i];
         if (c->owner < -1 || c->owner >= g->players) return 0;
         if (c->prod_type >= UT_COUNT) return 0;
+        if (c->qlen > CITY_QUEUE_MAX) return 0;
+        for (int q = 0; q < c->qlen; q++)
+            if (c->queue[q] >= UT_COUNT) return 0;
         if (c->fortified > 1) return 0;
         if (!isfinite(c->fort_t) || c->fort_t < 0.0f) return 0;
         if (!isfinite(c->pos.x) || !isfinite(c->pos.y)) return 0;

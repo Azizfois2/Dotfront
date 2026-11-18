@@ -106,6 +106,8 @@ typedef struct {
     Vec2     last_pos;
 } Unit;
 
+#define CITY_QUEUE_MAX 5
+
 typedef struct {
     Vec2     pos;
     int      owner;
@@ -117,6 +119,8 @@ typedef struct {
     uint8_t  prod_type;           /* UT_* */
     uint8_t  fortified;
     float    fort_t;              /* fortification build timer */
+    uint8_t  queue[CITY_QUEUE_MAX]; /* queued units, produced in order */
+    uint8_t  qlen;
 } City;
 
 /* ---- small vector helpers ------------------------------------------ */

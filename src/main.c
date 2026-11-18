@@ -97,9 +97,14 @@ static int run_headless(uint32_t seed, float seconds, int diff, int players) {
 /* Interactive game                                                    */
 /* ================================================================== */
 
+#define GROUP_COUNT 6
+
 typedef struct {
     int left_down, middle_down, right_down;
     int shift_down;
+    int ctrl_down;
+    int group_n[GROUP_COUNT];
+    uint8_t group_ids[GROUP_COUNT][MAX_UNITS];
     int dragging_box;
     Vec2 press_world;
     int press_x, press_y;
@@ -132,6 +137,27 @@ static void clamp_camera(View *v, const Game *g) {
 
 static Vec2 mouse_world(const View *v, int mx, int my) {
     return v2(v->cam.x + (float)mx / v->zoom, v->cam.y + (float)my / v->zoom);
+}
+
+static int minimap_world(const Game *g, const Renderer *r, const FB *fb,
+                         int mx, int my, Vec2 *out) {
+    int x0 = fb->w - r->mw - 14;
+    int y0 = fb->h - r->mh - 34;
+    if (mx < x0 || my < y0 || mx >= x0 + r->mw || my >= y0 + r->mh) return 0;
+    out->x = (float)(mx - x0) / (float)r->mw * (float)g->w.width;
+    out->y = (float)(my - y0) / (float)r->mh * (float)g->w.height;
+    return 1;
+}
+
+static void center_camera(View *v, const Game *g, Vec2 p) {
+    v->cam.x = p.x - (float)v->w / v->zoom * 0.5f;
+    v->cam.y = p.y - (float)v->h / v->zoom * 0.5f;
+    clamp_camera(v, g);
+}
+
+static void focus_faction(Game *g, View *v, int p) {
+    v->zoom = fmaxf(v->zoom, 1.0f);
+    center_camera(v, g, g->capital[p]);
 }
 
 static void reset_view(View *v, const Game *g) {
@@ -187,6 +213,38 @@ static void submit_stage(Game *g, Input *in) {
     clear_stage(in);
 }
 
+static void assign_group(Game *g, Input *in, int n) {
+    if (n < 0 || n >= GROUP_COUNT) return;
+    in->group_n[n] = 0;
+    for (int i = 0; i < MAX_UNITS; i++) {
+        if (!g->selected[i] || !g->units[i].alive) continue;
+        in->group_ids[n][in->group_n[n]++] = (uint8_t)i;
+    }
+    char buf[48];
+    if (in->group_n[n] == 0) snprintf(buf, sizeof(buf), "GROUP %d EMPTY", n + 1);
+    else snprintf(buf, sizeof(buf), "GROUP %d: %d UNITS", n + 1, in->group_n[n]);
+    game_notice(g, buf);
+}
+
+static void recall_group(Game *g, Input *in, int n) {
+    if (n < 0 || n >= GROUP_COUNT) return;
+    memset(g->selected, 0, sizeof(g->selected));
+    int count = 0;
+    for (int k = 0; k < in->group_n[n]; k++) {
+        int i = in->group_ids[n][k];
+        if (i < 0 || i >= MAX_UNITS || !g->units[i].alive ||
+            g->units[i].owner != g->local) continue;
+        g->selected[i] = 1;
+        count++;
+    }
+    g->sel_city = -1;
+    g->nsel = count;
+    char buf[48];
+    if (count == 0) snprintf(buf, sizeof(buf), "GROUP %d GONE", n + 1);
+    else snprintf(buf, sizeof(buf), "GROUP %d: %d UNITS", n + 1, count);
+    game_notice(g, buf);
+}
+
 static void reset_after_load(Game *g, View *v, Renderer *r, Input *in) {
     render_free(r);
     render_init(r, g);
@@ -195,6 +253,8 @@ static void reset_after_load(Game *g, View *v, Renderer *r, Input *in) {
     in->plen = 0;
     in->path_active = 0;
     clear_stage(in);
+    v->show_help = 0;
+    v->help_was_paused = 0;
     in->dragging_box = 0;
     in->left_down = in->right_down = in->middle_down = 0;
 }
@@ -244,8 +304,22 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
     }
     switch (key) {
     case PK_ESC:
-        if (g->menu) *running = 0;
+        if (v->show_help) {
+            v->show_help = 0;
+            g->paused = v->help_was_paused;
+        } else if (g->menu) *running = 0;
         else game_clear_selection(g);
+        break;
+    case PK_T:
+        if (!v->show_help) {
+            v->show_help = 1;
+            v->help_was_paused = g->paused;
+            g->paused = 1;
+        } else {
+            v->show_help = 0;
+            g->paused = v->help_was_paused;
+        }
+        g->sfx |= (uint16_t)SFX_UI;
         break;
     case PK_Z:
         if (!g->menu) game_select_all(g);
@@ -288,14 +362,38 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
     case PK_1:
     case PK_2:
     case PK_3:
-        if (g->menu) {
-            *ai_diff = (int)key - (int)PK_1;
-            for (int p = 1; p < g->players; p++) g->difficulty[p] = *ai_diff;
-        } else {
-            game_set_city_production(g, (int)key - (int)PK_1);
+    case PK_4:
+    case PK_5:
+    case PK_6: {
+        int n = (int)key - (int)PK_1;
+        if (g->spectator) {
+            if (n < g->players) {
+                focus_faction(g, v, n);
+                char b[48];
+                snprintf(b, sizeof(b), "CAMERA %s", owner_name(n));
+                game_notice(g, b);
+            }
+        } else if (g->menu) {
+            if (n <= 2) {
+                *ai_diff = n;
+                for (int p = 1; p < g->players; p++) g->difficulty[p] = *ai_diff;
+            }
+        } else if (in->ctrl_down) {
+            assign_group(g, in, n);
             g->sfx |= (uint16_t)SFX_UI;
+        } else if (g->sel_city >= 0 && n <= 2) {
+            if (in->shift_down && g->cities[g->sel_city].owner == g->local) {
+                game_queue_city_production(g, n);
+                g->sfx |= (uint16_t)SFX_UI;
+            } else if (g->cities[g->sel_city].owner == g->local) {
+                game_set_city_production(g, n);
+                g->sfx |= (uint16_t)SFX_UI;
+            }
+        } else {
+            recall_group(g, in, n);
         }
         break;
+    }
     case PK_R:
         new_match(g, v, r, in, seed, ai_diff, *players);
         printf("new game, %d factions, seed %u, map %s / %s, AI %s\n",
@@ -445,6 +543,7 @@ int main(int argc, char **argv) {
                 if (ev.key > PK_NONE && ev.key < PK_COUNT && !in.down[ev.key]) {
                     in.down[ev.key] = 1;
                     if (ev.key == PK_SHIFT) in.shift_down = 1;
+                    else if (ev.key == PK_CTRL) in.ctrl_down = 1;
                     else handle_key(&g, &v, &r, &in, ev.key, &seed, &running,
                                     &ai_diff, &players);
                 }
@@ -452,10 +551,29 @@ int main(int argc, char **argv) {
             case PEV_KEYUP:
                 if (ev.key > PK_NONE && ev.key < PK_COUNT) in.down[ev.key] = 0;
                 if (ev.key == PK_SHIFT) in.shift_down = 0;
+                if (ev.key == PK_CTRL) in.ctrl_down = 0;
                 break;
             case PEV_MOUSEDOWN: {
                 if (g.menu || g.winner >= 0) break;
                 int mx = ev.x, my = ev.y;
+                Vec2 mmw;
+                if (minimap_world(&g, &r, &fb, mx, my, &mmw)) {
+                    if (ev.button == 1) {
+                        center_camera(&v, &g, mmw);
+                    } else if (ev.button == 3) {
+                        if (g.nsel > 0) {
+                            game_order_selected(&g, &mmw, 1);
+                            g.sfx |= (uint16_t)SFX_ORDER;
+                        } else if (g.sel_city >= 0 &&
+                                   g.cities[g.sel_city].owner == g.local) {
+                            game_set_city_rally(&g, mmw);
+                            g.sfx |= (uint16_t)SFX_ORDER;
+                        } else {
+                            center_camera(&v, &g, mmw);
+                        }
+                    }
+                    break;
+                }
                 if (ev.button == 1) {
                     in.left_down = 1;
                     in.press_x = mx;

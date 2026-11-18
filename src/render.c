@@ -23,12 +23,18 @@ static uint32_t terrain_pixel(const World *w, float x, float y) {
 
     uint32_t c;
     if (e < 0.215f) {
-        c = mix_color(rgb(12, 44, 78), rgb(48, 126, 166), e / 0.215f);
-    } else if (e < 0.235f) {
-        c = rgb(204, 190, 133);
+        /* deep water -> turquoise shallows, with a soft band near the shore */
+        float t = clampf(e / 0.215f, 0.0f, 1.0f);
+        c = mix_color(rgb(10, 37, 68), rgb(45, 126, 158), t * t);
+        float foam = smoothf(clampf((t - 0.82f) / 0.18f, 0.0f, 1.0f));
+        c = mix_color(c, rgb(112, 174, 178), foam * 0.42f);
+    } else if (e < 0.250f) {
+        /* wet sand blending into grass removes the hard one-pixel coastline */
+        float t = smoothf(clampf((e - 0.215f) / 0.035f, 0.0f, 1.0f));
+        c = mix_color(rgb(196, 184, 132), rgb(123, 156, 91), t);
     } else if (e < 0.55f) {
         float f = world_forest_at(w, x, y);
-        float t = (e - 0.235f) / (0.55f - 0.235f);
+        float t = (e - 0.250f) / (0.55f - 0.250f);
         uint32_t grass = mix_color(rgb(88, 146, 78), rgb(116, 174, 94), t);
         uint32_t trees = mix_color(rgb(39, 84, 47), rgb(55, 114, 64), t);
         float tint = smoothf(clampf((f - 0.53f) / 0.09f, 0.0f, 1.0f));

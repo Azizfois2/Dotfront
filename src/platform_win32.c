@@ -39,6 +39,9 @@ static PlatKey map_vk(WPARAM vk) {
     case '1':         return PK_1;
     case '2':         return PK_2;
     case '3':         return PK_3;
+    case '4':         return PK_4;
+    case '5':         return PK_5;
+    case '6':         return PK_6;
     case VK_F5:       return PK_F5;
     case 'F':         return PK_F;
     case VK_F9:       return PK_F9;
@@ -47,6 +50,7 @@ static PlatKey map_vk(WPARAM vk) {
     case 'H':         return PK_H;
     case 'X':         return PK_X;
     case 'C':         return PK_C;
+    case 'T':         return PK_T;
     case VK_LEFT:     return PK_LEFT;
     case VK_RIGHT:    return PK_RIGHT;
     case VK_UP:       return PK_UP;
@@ -54,6 +58,9 @@ static PlatKey map_vk(WPARAM vk) {
     case VK_SHIFT:
     case VK_LSHIFT:
     case VK_RSHIFT:   return PK_SHIFT;
+    case VK_CONTROL:
+    case VK_LCONTROL:
+    case VK_RCONTROL: return PK_CTRL;
     default:          return PK_NONE;
     }
 }

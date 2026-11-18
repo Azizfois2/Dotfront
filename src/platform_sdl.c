@@ -28,6 +28,9 @@ static PlatKey map_key(SDL_Keycode k) {
     case SDLK_1:        return PK_1;
     case SDLK_2:        return PK_2;
     case SDLK_3:        return PK_3;
+    case SDLK_4:        return PK_4;
+    case SDLK_5:        return PK_5;
+    case SDLK_6:        return PK_6;
     case SDLK_F5:       return PK_F5;
     case SDLK_f:        return PK_F;
     case SDLK_F9:       return PK_F9;
@@ -36,12 +39,15 @@ static PlatKey map_key(SDL_Keycode k) {
     case SDLK_h:        return PK_H;
     case SDLK_x:        return PK_X;
     case SDLK_c:        return PK_C;
+    case SDLK_t:        return PK_T;
     case SDLK_LEFT:     return PK_LEFT;
     case SDLK_RIGHT:    return PK_RIGHT;
     case SDLK_UP:       return PK_UP;
     case SDLK_DOWN:     return PK_DOWN;
     case SDLK_LSHIFT:
     case SDLK_RSHIFT:   return PK_SHIFT;
+    case SDLK_LCTRL:
+    case SDLK_RCTRL:    return PK_CTRL;
     default:            return PK_NONE;
     }
 }

@@ -35,6 +35,8 @@ typedef struct {
     int   stage_len;
     int   stage_marks[8];
     int   stage_marks_n;
+    int   show_help;     /* tutorial / controls overlay */
+    int   help_was_paused;
 } View;
 
 void render_init(Renderer *r, const Game *g);

@@ -167,14 +167,19 @@ static void draw_selection_info(FB *fb, const Game *g) {
         const City *c = &g->cities[g->sel_city];
         int t = c->prod_type;
         if (t < 0 || t >= UT_COUNT) t = UT_SOLDIER;
+        char q[32] = "";
+        if (c->qlen > 0)
+            snprintf(q, sizeof(q), "  -  %d QUEUED", c->qlen);
         if (c->fort_t > 0.0f)
-            snprintf(buf, sizeof(buf), "FORTIFYING  %.1fs  -  RMB RALLY", (double)c->fort_t);
+            snprintf(buf, sizeof(buf), "FORTIFYING  %.1fs%s  -  RMB RALLY",
+                     (double)c->fort_t, q);
         else if (c->fortified)
-            snprintf(buf, sizeof(buf), "CITY FORTIFIED  %s  -  1/2/3  -  RMB RALLY",
-                     UNIT_TYPE[t].name);
+            snprintf(buf, sizeof(buf), "CITY FORTIFIED  %s%s  -  RMB RALLY",
+                     UNIT_TYPE[t].name, q);
         else
-            snprintf(buf, sizeof(buf), "CITY %s  -  1/2/3  -  F FORTIFY  -  RMB RALLY",
-                     UNIT_TYPE[t].name);
+            snprintf(buf, sizeof(buf),
+                     "CITY %s  -  1/2/3  -  SHIFT+1/2/3 QUEUE%s  -  F FORTIFY  -  RMB RALLY",
+                     UNIT_TYPE[t].name, q);
     } else if (g->sel_city >= 0) {
         snprintf(buf, sizeof(buf), "ENEMY / NEUTRAL CITY  -  MOVE UNITS INSIDE TO CAPTURE");
     } else {
@@ -189,11 +194,12 @@ static void draw_help(FB *fb, const Game *g) {
     int y = fb->h - h;
     gfx_fill_a(fb, 0, y, fb->w, h, 0xFF080B10, 200);
     const char *help = g->spectator
-        ? "SPECTATING - NO FOG   ARROWS/WASD PAN   MIDDLE DRAG PAN   EDGE SCROLL   "
-          "WHEEL ZOOM   R NEW GAME   Q QUIT"
+        ? "SPECTATING - NO FOG   1-6 FOCUS FACTION   ARROWS/WASD PAN   "
+          "MIDDLE DRAG PAN   EDGE SCROLL   WHEEL ZOOM   R NEW GAME   Q QUIT"
         : "LMB SELECT   RMB MOVE   SHIFT+RMB STAGE   SPACE SEND/PAUSE   C CLEAR   "
-          "G ATTACK   H HOLD   X STOP   Z ALL   F FORTIFY   F5/F9 SAVE/LOAD   "
-          "M SOUND   R NEW   ARROWS PAN   WHEEL ZOOM";
+          "G ATTACK   H HOLD   X STOP   Z ALL   F FORTIFY   SHIFT+1/2/3 QUEUE   "
+          "CTRL+1-6 GROUP   1-6 RECALL   T HELP   MINIMAP LMB JUMP / RMB ORDER   "
+          "F5/F9 SAVE/LOAD   M SOUND   R NEW   ARROWS PAN   WHEEL ZOOM";
     gfx_text(fb, 12, y + 8, help, 1, 0xFF8C9AAB);
 }
 
@@ -242,7 +248,7 @@ static void draw_menu(FB *fb, const Game *g) {
     shadow_text(fb, cx, y + 336, "R NEW MAP     M SOUND ON/OFF     Q QUIT", 2, 0xFF9FB4C8);
     shadow_text(fb, cx, y + 372, "LMB SELECT   RMB MOVE   SHIFT+RMB STAGE PATH   SPACE SEND", 1,
                 0xFF71808F);
-    shadow_text(fb, cx, y + 390, "1/2/3 CITY UNIT   F FORTIFY   F5 SAVE   F9 LOAD   C CLEAR STAGES", 1,
+    shadow_text(fb, cx, y + 390, "1/2/3 UNIT   SHIFT+1/2/3 QUEUE   T HELP   F FORTIFY   F5/F9 SAVE/LOAD", 1,
                 0xFF71808F);
 }
 
@@ -258,6 +264,41 @@ static void draw_eliminated(FB *fb, const Game *g) {
                 "SPACE   WATCH THE REST (NO FOG)", 3, 0xFFCFE3F5);
     shadow_text(fb, fb->w / 2, cy + 188,
                 "Q   QUIT", 3, 0xFFCFE3F5);
+}
+
+static void draw_tutorial(FB *fb) {
+    gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 238);
+    int cx = fb->w / 2;
+    shadow_text(fb, cx, 42, "HOW TO PLAY", 5, C_WHITE);
+    int lx = 84, rx = fb->w / 2 + 36, y = 118;
+
+    gfx_text(fb, lx, y, "SELECT & MOVE", 2, C_GOLD);
+    gfx_text(fb, lx, y + 30, "LMB select   drag a box   SHIFT adds units", 1, 0xFFCFE3F5);
+    gfx_text(fb, lx, y + 48, "RMB drag draws a route; SHIFT+RMB stages it", 1, 0xFFCFE3F5);
+    gfx_text(fb, lx, y + 66, "SPACE sends the stage, else pauses; C clears", 1, 0xFFCFE3F5);
+    gfx_text(fb, lx, y + 84, "G attack-move   H hold   X stop   Z select all", 1, 0xFFCFE3F5);
+    gfx_text(fb, lx, y + 102, "CTRL+1-6 stores a group; 1-6 recalls it (no city selected)", 1, 0xFFCFE3F5);
+    gfx_text(fb, lx, y + 120, "WASD / arrows / middle drag / screen edge scroll", 1, 0xFFCFE3F5);
+
+    gfx_text(fb, lx, y + 142, "CITIES & SUPPLY", 2, C_GOLD);
+    gfx_text(fb, lx, y + 172, "Stand inside a city to capture it. More dots capture", 1, 0xFFCFE3F5);
+    gfx_text(fb, lx, y + 190, "faster. Your cities produce units automatically.", 1, 0xFFCFE3F5);
+    gfx_text(fb, lx, y + 208, "Units heal near friendly cities/territory and lose", 1, 0xFFCFE3F5);
+    gfx_text(fb, lx, y + 226, "health on enemy soil. Keep your army supplied.", 1, 0xFFCFE3F5);
+
+    gfx_text(fb, rx, y, "PRODUCTION", 2, C_GOLD);
+    gfx_text(fb, rx, y + 30, "Select your city: 1 scout / 2 soldier / 3 heavy", 1, 0xFFCFE3F5);
+    gfx_text(fb, rx, y + 48, "SHIFT+1/2/3 queues up to five extra units", 1, 0xFFCFE3F5);
+    gfx_text(fb, rx, y + 66, "F fortifies for 10 s; RMB sets the rally point", 1, 0xFFCFE3F5);
+    gfx_text(fb, rx, y + 84, "F5 saves the match; F9 loads it again", 1, 0xFFCFE3F5);
+
+    gfx_text(fb, rx, y + 142, "FOG, MAP & CAMERA", 2, C_GOLD);
+    gfx_text(fb, rx, y + 172, "Hills see far, forests short. Enemy units and city", 1, 0xFFCFE3F5);
+    gfx_text(fb, rx, y + 190, "owners disappear outside your vision.", 1, 0xFFCFE3F5);
+    gfx_text(fb, rx, y + 208, "Minimap LMB jumps the camera; RMB gives orders.", 1, 0xFFCFE3F5);
+    gfx_text(fb, rx, y + 226, "Spectating: 1-6 focuses a faction, Q quits.", 1, 0xFFCFE3F5);
+
+    shadow_text(fb, cx, fb->h - 70, "T OR ESC   CLOSE HELP", 2, 0xFFBFD4E6);
 }
 
 void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
@@ -314,4 +355,6 @@ void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
         shadow_text(fb, fb->w / 2, fb->h / 2 + 34,
                     starting ? "SPACE TO START" : "SPACE TO RESUME", 3, 0xFFBFD4E6);
     }
+
+    if (v->show_help) draw_tutorial(fb);
 }

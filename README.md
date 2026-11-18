@@ -18,10 +18,13 @@ platform SDK/headers.
 - 2-6 factions with distinct colours, and an opponent-count selector on the start menu
 - Procedurally generated maps in four styles (island, archipelago, lakes, highlands) and five
   large-scale silhouettes (continent, twin isles, atoll, fjords, scattered isles), with warped
-  cliffs, noisy coasts and wavy sea borders instead of one central square blob; the map grows
+  cliffs, soft shallow-water coastlines and wavy sea borders instead of one central square
+  blob; the map grows
   with the player count (roughly five cities and 400k px² per faction, up to 2060×1160)
 - Territory grid derived from city influence: ground is faintly faction-tinted, borders are drawn
   on the cell grid, and standing on friendly/enemy soil modifies supply healing
+- City production queues (up to five queued units), control groups, minimap click-to-jump and
+  right-click orders, a two-column in-game tutorial, and faction-camera presets while spectating
 - Five terrain types with real gameplay effects: plains, forest, hill, water, impassable mountain
 - Selection (click, shift-add, box select), hand-drawn movement paths, and formation offsets
 - Staged path drawing: hold Shift and right-drag to append route segments, then `SPACE` to send
@@ -99,6 +102,11 @@ or `Q` to quit.
 | `H` | Hold position (selected units stop and do not chase) |
 | `X` | Stop / cancel current orders |
 | `1` `2` `3` | With a city selected: produce scout / soldier / heavy. Otherwise: switch the AI difficulty |
+| `SHIFT` + `1` `2` `3` | Queue another scout / soldier / heavy at the selected city (max 5) |
+| `CTRL` + `1`–`6` | Store the current selection as a control group |
+| `1`–`6` | Recall that group when no city is selected |
+| Minimap left click | Jump the camera to that part of the map |
+| Minimap right click | Send selected units there, or set the selected city's rally point |
 | `F` | Fortify the selected city (10 s, pauses its production) |
 | `F5` / `F9` | Save the match / load `wod_save.bin` |
 | `M` | Toggle sound |
@@ -107,7 +115,8 @@ or `Q` to quit.
 | Move cursor to a window edge | Scroll the camera in that direction |
 | Mouse wheel | Zoom around the cursor |
 | `SPACE` | Pause / resume (or send staged orders when a route is staged) |
-| `ESC` | Clear selection (or leave the menu) |
+| `T` | Open / close the tutorial and controls screen |
+| `ESC` | Close help, clear selection, or leave the menu |
 | `R` | Restart with a new random map |
 | `Q` | Quit |
 
@@ -173,7 +182,8 @@ and offers three choices:
 | `Q` | Quit immediately |
 
 While spectating, the whole map is visible, the HUD shows every faction's live city/army counts,
-and the normal pan/zoom controls still work.
+and the normal pan/zoom controls still work. Press `1`–`6` to jump the camera to a surviving
+faction's capital.
 
 ## Headless mode
 

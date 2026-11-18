@@ -47,6 +47,9 @@ static PlatKey map_key(KeySym ks) {
     case XK_1:        return PK_1;
     case XK_2:        return PK_2;
     case XK_3:        return PK_3;
+    case XK_4:        return PK_4;
+    case XK_5:        return PK_5;
+    case XK_6:        return PK_6;
     case XK_F5:       return PK_F5;
     case XK_f: case XK_F: return PK_F;
     case XK_F9:       return PK_F9;
@@ -55,12 +58,15 @@ static PlatKey map_key(KeySym ks) {
     case XK_h: case XK_H: return PK_H;
     case XK_x: case XK_X: return PK_X;
     case XK_c: case XK_C: return PK_C;
+    case XK_t: case XK_T: return PK_T;
     case XK_Left:     return PK_LEFT;
     case XK_Right:    return PK_RIGHT;
     case XK_Up:       return PK_UP;
     case XK_Down:     return PK_DOWN;
     case XK_Shift_L:
     case XK_Shift_R:  return PK_SHIFT;
+    case XK_Control_L:
+    case XK_Control_R: return PK_CTRL;
     default:          return PK_NONE;
     }
 }
