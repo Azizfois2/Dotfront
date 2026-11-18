@@ -193,6 +193,11 @@ Platform *plat_open(const char *title, int w, int h) {
     wc.lpfnWndProc = wnd_proc;
     wc.hInstance = inst;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hIcon = (HICON)LoadImage(inst, MAKEINTRESOURCE(1), IMAGE_ICON, 0, 0,
+                                LR_DEFAULTSIZE | LR_SHARED);
+    wc.hIconSm = (HICON)LoadImage(inst, MAKEINTRESOURCE(1), IMAGE_ICON,
+                                  GetSystemMetrics(SM_CXSMICON),
+                                  GetSystemMetrics(SM_CYSMICON), LR_SHARED);
     wc.lpszClassName = "WodCWindow";
     if (!RegisterClassEx(&wc)) { free(p); g_plat = NULL; return NULL; }
 

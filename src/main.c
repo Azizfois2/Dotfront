@@ -8,6 +8,7 @@
 #include "game.h"
 #include "ai.h"
 #include "render.h"
+#include "version.h"
 #include "platform.h"
 #include "net.h"
 
@@ -576,7 +577,41 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
     }
 }
 
-int main(int argc, char **argv) {
+static void handle_ui_action(Game *g, View *v, Renderer *r, Input *in,
+                             int action, uint32_t *seed, int *running,
+                             int *ai_diff, int *players) {
+    PlatKey key = PK_NONE;
+    g->sfx |= (uint16_t)SFX_UI;
+    switch (action) {
+    case UI_MENU_START:     key = PK_SPACE; break;
+    case UI_MENU_CONTINUE:  key = PK_F9; break;
+    case UI_MENU_LEFT:      key = PK_LEFT; break;
+    case UI_MENU_RIGHT:     key = PK_RIGHT; break;
+    case UI_MENU_EASY:      key = PK_1; break;
+    case UI_MENU_NORMAL:    key = PK_2; break;
+    case UI_MENU_HARD:      key = PK_3; break;
+    case UI_MENU_NEW:       key = PK_R; break;
+    case UI_MENU_SOUND:     key = PK_M; break;
+    case UI_MENU_HELP:      key = PK_T; break;
+    case UI_MENU_QUIT:      *running = 0; return;
+    case UI_PAUSE_RESUME:   key = PK_SPACE; break;
+    case UI_ELIM_RESTART:   key = PK_R; break;
+    case UI_ELIM_SPECTATE:  key = PK_SPACE; break;
+    case UI_ELIM_QUIT:      *running = 0; return;
+    case UI_WIN_RESTART:    key = PK_R; break;
+    case UI_WIN_LOAD:       key = PK_F9; break;
+    case UI_WIN_QUIT:       *running = 0; return;
+    case UI_HELP_CLOSE:     key = PK_ESC; break;
+    case UI_PROD_SCOUT:     key = PK_1; break;
+    case UI_PROD_SOLDIER:   key = PK_2; break;
+    case UI_PROD_HEAVY:     key = PK_3; break;
+    case UI_CITY_FORTIFY:   key = PK_F; break;
+    default: return;
+    }
+    handle_key(g, v, r, in, key, seed, running, ai_diff, players);
+}
+
+int wod_main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     uint32_t seed = (uint32_t)time(NULL);
     float headless = 0.0f;
@@ -612,6 +647,9 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "unknown difficulty '%s' (easy, normal, hard)\n", d);
                 return 2;
             }
+        } else if (!strcmp(argv[i], "--version")) {
+            printf("War of Dots %s\n", WOD_VERSION);
+            return 0;
         } else if (!strcmp(argv[i], "--help")) {
             printf("usage: %s [--seed N] [--players 2-6] [--headless SECONDS] "
                    "[--difficulty easy|normal|hard]\n"
@@ -624,7 +662,8 @@ int main(int argc, char **argv) {
                    "  --difficulty   AI profile (also 1/2/3 in the menu)\n"
                    "  --host [PORT]  host a LAN match (default port %d)\n"
                    "  --join ADDR    join a LAN host, e.g. 192.168.1.20\n"
-                   "  --port N       default LAN port (also accepted after --host)\n",
+                   "  --port N       default LAN port (also accepted after --host)\n"
+                   "  --version      print the version and exit\n",
                    argv[0], argv[0], argv[0], NET_DEFAULT_PORT);
             return 0;
         }
@@ -731,8 +770,18 @@ int main(int argc, char **argv) {
                 if (ev.key == PK_CTRL) in.ctrl_down = 0;
                 break;
             case PEV_MOUSEDOWN: {
-                if (g.menu || g.winner >= 0) break;
                 int mx = ev.x, my = ev.y;
+                if (ev.button == 1) {
+                    int action = ui_hit_test(&g, &v, mx, my);
+                    if (action != UI_NONE) {
+                        handle_ui_action(&g, &v, &r, &in, action, &seed,
+                                         &running, &ai_diff, &players);
+                        in.left_down = 0;
+                        break;
+                    }
+                }
+                if (g.menu || g.winner >= 0 || g.paused || g.eliminated ||
+                    v.show_help) break;
                 Vec2 mmw;
                 if (minimap_world(&g, &r, &fb, mx, my, &mmw)) {
                     if (ev.button == 1) {
@@ -785,7 +834,13 @@ int main(int argc, char **argv) {
                 break;
             }
             case PEV_MOUSEUP: {
-                if (g.menu || g.winner >= 0) break;
+                if (g.menu || g.winner >= 0 || g.paused || g.eliminated ||
+                    v.show_help) {
+                    in.left_down = 0;
+                    in.right_down = 0;
+                    in.middle_down = 0;
+                    break;
+                }
                 int mx = ev.x, my = ev.y;
                 if (ev.button == 1) {
                     if (in.dragging_box) {
@@ -822,7 +877,14 @@ int main(int argc, char **argv) {
             }
             case PEV_MOUSEMOVE: {
                 int mx = ev.x, my = ev.y;
-                if (g.menu || g.winner >= 0) { in.last_mx = mx; in.last_my = my; break; }
+                v.mouse_x = mx;
+                v.mouse_y = my;
+                if (g.menu || g.winner >= 0 || g.paused || g.eliminated ||
+                    v.show_help) {
+                    in.last_mx = mx;
+                    in.last_my = my;
+                    break;
+                }
                 if (in.left_down) {
                     int dx = mx - in.press_x, dy = my - in.press_y;
                     if (dx * dx + dy * dy > 36) in.dragging_box = 1;
@@ -853,7 +915,8 @@ int main(int argc, char **argv) {
                 break;
             }
             case PEV_WHEEL: {
-                if (g.menu || g.winner >= 0) break;
+                if (g.menu || g.winner >= 0 || g.paused || g.eliminated ||
+                    v.show_help) break;
                 float nz = v.zoom;
                 if (ev.wheel > 0) {
                     for (int i2 = 0; i2 < ev.wheel; i2++) nz *= 1.15f;
@@ -877,6 +940,10 @@ int main(int argc, char **argv) {
         float dt = (float)(t - last);
         last = t;
         if (dt > 0.1f) dt = 0.1f;
+        if (in.last_mx >= 0 && in.last_my >= 0) {
+            v.mouse_x = in.last_mx;
+            v.mouse_y = in.last_my;
+        }
 
         /* camera keys */
         float pan = 520.0f * dt / v.zoom;

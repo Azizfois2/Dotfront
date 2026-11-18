@@ -1,0 +1,51 @@
+plugins { id 'com.android.application' }
+
+def wodVersion = System.getenv("WOD_VERSION") ?: "1.1.0"
+def wodCode = (System.getenv("WOD_VERSION_CODE") ?: "2").toInteger()
+def keystore = System.getenv("WOD_KEYSTORE")
+
+android {
+    namespace "com.azizfois2.warofdots"
+    compileSdk 35
+    ndkVersion "27.2.12479018"
+
+    defaultConfig {
+        applicationId "com.azizfois2.warofdots"
+        minSdk 21
+        targetSdk 35
+        versionCode wodCode
+        versionName wodVersion
+        externalNativeBuild {
+            ndkBuild {
+                arguments "APP_PLATFORM=android-21"
+                abiFilters 'arm64-v8a', 'armeabi-v7a'
+            }
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (keystore) {
+                storeFile file(keystore)
+                storePassword System.getenv("WOD_KEYSTORE_PASS")
+                keyAlias System.getenv("WOD_KEY_ALIAS") ?: "warofdots"
+                keyPassword System.getenv("WOD_KEY_PASS")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystore) signingConfig signingConfigs.release
+        }
+    }
+
+    sourceSets.main {
+        jniLibs.srcDir 'libs'
+    }
+    externalNativeBuild {
+        ndkBuild { path 'jni/Android.mk' }
+    }
+    lint { abortOnError false }
+}

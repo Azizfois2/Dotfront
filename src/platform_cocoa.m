@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #include "platform.h"
+#include "icon_rgba.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -230,6 +231,23 @@ Platform *plat_open(const char *title, int w, int h) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+
+        CGColorSpaceRef icon_cs = CGColorSpaceCreateDeviceRGB();
+        CGDataProviderRef icon_dp = CGDataProviderCreateWithData(
+            NULL, wod_icon_rgba, WOD_ICON_W * WOD_ICON_H * 4, NULL);
+        CGImageRef icon_cg = CGImageCreate(
+            WOD_ICON_W, WOD_ICON_H, 8, 32, WOD_ICON_W * 4, icon_cs,
+            kCGImageAlphaLast | kCGBitmapByteOrder32Big,
+            icon_dp, NULL, false, kCGRenderingIntentDefault);
+        if (icon_cg) {
+            NSImage *app_icon = [[NSImage alloc]
+                initWithCGImage:icon_cg
+                           size:NSMakeSize(WOD_ICON_W, WOD_ICON_H)];
+            if (app_icon) [NSApp setApplicationIconImage:app_icon];
+            CGImageRelease(icon_cg);
+        }
+        CGDataProviderRelease(icon_dp);
+        CGColorSpaceRelease(icon_cs);
 
         Platform *p = calloc(1, sizeof(*p));
         if (!p) return NULL;

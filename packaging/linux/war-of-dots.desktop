@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=War of Dots
+Comment=Minimalist real-time strategy with dots
+Exec=wod_c
+Icon=war-of-dots
+Terminal=false
+Categories=Game;StrategyGame;
+Keywords=rts;strategy;dots;

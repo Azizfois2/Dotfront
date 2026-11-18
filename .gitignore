@@ -10,3 +10,14 @@ macos-window*.png
 *.d
 wod_save.bin
 .shots/
+*.app/
+
+# Android build outputs
+android/.deps/
+android/app/jni/SDL/
+android/app/src/main/java/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/release.keystore

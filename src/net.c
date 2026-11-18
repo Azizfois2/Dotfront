@@ -474,9 +474,16 @@ static void client_apply_snapshot(Net *n, Game *g) {
     uint8_t sel[MAX_UNITS];
     int sel_city = g->sel_city;
     int sound_on = g->sound_on;
+    char notice[sizeof(g->notice)];
+    float notice_t = g->notice_t;
+    memcpy(notice, g->notice, sizeof(notice));
     memcpy(sel, g->selected, sizeof(sel));
 
     *g = n->snapshot;
+    if (g->menu && notice_t > 0.0f) {
+        memcpy(g->notice, notice, sizeof(notice));
+        g->notice_t = notice_t;
+    }
     g->local = n->local_slot >= 0 ? n->local_slot : 0;
     g->sfx = 0;
     g->sound_on = sound_on;

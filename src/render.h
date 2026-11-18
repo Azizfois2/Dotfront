@@ -38,12 +38,28 @@ typedef struct {
     int   show_help;     /* tutorial / controls overlay */
     int   help_was_paused;
     char  net_status[96];  /* LAN host/client badge, empty when offline */
+    int   mouse_x, mouse_y;
 } View;
 
 void render_init(Renderer *r, const Game *g);
 void render_free(Renderer *r);
 void render_world(FB *fb, const Game *g, Renderer *r, const View *v);
 void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v);
+
+enum {
+    UI_NONE = 0,
+    UI_MENU_START, UI_MENU_CONTINUE, UI_MENU_LEFT, UI_MENU_RIGHT,
+    UI_MENU_EASY, UI_MENU_NORMAL, UI_MENU_HARD,
+    UI_MENU_NEW, UI_MENU_SOUND, UI_MENU_HELP, UI_MENU_QUIT,
+    UI_PAUSE_RESUME,
+    UI_ELIM_RESTART, UI_ELIM_SPECTATE, UI_ELIM_QUIT,
+    UI_WIN_RESTART, UI_WIN_LOAD, UI_WIN_QUIT,
+    UI_HELP_CLOSE,
+    UI_PROD_SCOUT, UI_PROD_SOLDIER, UI_PROD_HEAVY, UI_CITY_FORTIFY
+};
+
+/* Returns the overlay action whose hit box contains (mx,my), or UI_NONE. */
+int ui_hit_test(const Game *g, const View *v, int mx, int my);
 
 static inline Vec2 w2s(const View *v, Vec2 w) {
     return v2((w.x - v->cam.x) * v->zoom, (w.y - v->cam.y) * v->zoom);

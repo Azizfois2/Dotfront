@@ -2,7 +2,7 @@
 
 [![build](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml/badge.svg)](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml)
 
-A small single-player RTS in C, inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-) in this repository.
+A small RTS in C, inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-) in this repository.
 You command blue dots against 2-6 AI factions (blue, red, green, gold, violet, cyan), offline or
 over a LAN, on one shared C game core.
 
@@ -13,9 +13,20 @@ platform SDK/headers.
 
 ![screenshot](screenshot.png)
 
+## Download
+
+Prebuilt **Linux**, **Windows**, **macOS (universal)** and **Android** packages are attached to
+the [latest release](https://github.com/Azizfois2/war-of-dots-c/releases/latest). Android is a
+landscape APK for arm64 and armeabi-v7a devices; no Play Store account is needed. See
+[CHANGELOG.md](CHANGELOG.md) for what changed in each tag.
+
 ## Features
 
-- 2-6 factions with distinct colours, and an opponent-count selector on the start menu
+- 2-6 factions with distinct colours, and a mouse-driven start menu with opponent arrows,
+  difficulty buttons, continue, new map, sound, help and quit
+- Clickable pause, winner, elimination and tutorial overlays with hover feedback
+- Android touch port: tap to select, long-press to move, two fingers to pan and pinch-zoom,
+  plus on-screen city production and fortify buttons
 - LAN play: an authoritative host, up to five TCP clients, client orders, and AI takeover of
   every empty or disconnected faction slot
 - Procedurally generated maps in four styles (island, archipelago, lakes, highlands) and five
@@ -42,6 +53,7 @@ platform SDK/headers.
 - Save/load (`F5` / `F9`) with a versioned binary snapshot, plus a start menu and continue option
 - Match summary with units built/lost, cities captured, and peak army size
 - Minimal synthesized sound events (`M` toggles), no audio assets
+- Native window/taskbar/Dock icon (embedded, no runtime files needed) and a macOS `.app` bundle
 - Cities: capture by presence/majority, unit production, rally points for new units
 - Supply system: units heal near friendly cities, starve far away or behind enemy lines
 - Fog-respecting AI: it scouts unknown ground, remembers city owners, and defends only attacks
@@ -58,21 +70,42 @@ cd c_rts
 make            # Linux/X11, or native macOS/Cocoa
 make windows    # Windows .exe (cross-compile with mingw-w64)
 make sdl        # optional SDL2 build on Linux -> wod_c_sdl
+make app        # macOS: "War of Dots.app" bundle with Finder icon
+make android    # Android APK (requires Android SDK + NDK 27.2)
 ```
 
 Requirements:
 
 - Linux: `gcc` (or clang), `make`, X11 headers
   (Debian/Ubuntu: `sudo apt install build-essential libx11-dev libxext-dev`).
-- Windows: `make windows` from Linux with `x86_64-w64-mingw32-gcc` installed
-  (`sudo apt install mingw-w64`). On Windows itself, use MSYS2/MinGW and
+- Windows: `make windows` from Linux with `x86_64-w64-mingw32-gcc` and
+  `x86_64-w64-mingw32-windres` installed (`sudo apt install mingw-w64`). On Windows itself, use MSYS2/MinGW and
   `make windows MINGW=gcc`. No SDL or other runtime DLLs are needed.
-- macOS: Xcode command-line tools only, then plain `make`. The window and input
-  use AppKit/Cocoa, with no SDL or Homebrew dependency. If the native backend
+- macOS: Xcode command-line tools only, then plain `make` (or `make app` for the
+  bundle). The window and input use AppKit/Cocoa, with no SDL or Homebrew dependency. If the native backend
   gives you trouble, `brew install sdl2 && make sdl` builds the SDL2 fallback
   as `wod_c_sdl`.
 
-The Windows executable is `wod_c.exe`; everything else is identical.
+The Windows executable is `wod_c.exe`; everything else is identical. Source artwork lives in
+`assets/icon.png` with generated `.ico`/`.icns` variants, and is embedded into each backend.
+
+### Android
+
+The Android port uses the same SDL2 backend and C game core, wrapped in a small Gradle project:
+
+```sh
+cd c_rts
+ANDROID_HOME=$HOME/android-sdk make android
+# APK: android/app/build/outputs/apk/release/app-release.apk
+```
+
+It needs JDK 17+, Android SDK platform 35/build-tools 35 and NDK `27.2.12479018`. The first build
+downloads SDL2 2.32.10 (`android/build-apk.sh`), then Gradle downloads its own dependencies.
+The release workflow builds and signs an installable APK automatically.
+
+Touch controls: **tap** selects units/cities and presses buttons, **long-press** gives a move
+order (drag after the long press to draw a path), one-finger drag box-selects, and **two fingers**
+pan and pinch-zoom. City production and fortify are the four on-screen buttons above the status strip.
 
 ## Play
 
@@ -112,9 +145,12 @@ matches. A client joining after the match has started is rejected. The host list
 47777 (or `--port N` / the optional port after `--host`), so allow that port through the host
 firewall. This is LAN play, not NAT traversal; both ends must run the same game version.
 
+The start menu, pause screen, winner/elimination screens and tutorial are all clickable. Hover a
+button to highlight it; the keyboard shortcuts below still work everywhere.
+
 | Input | Action |
 | --- | --- |
-| Left click | Select a unit, shift-click to add, click a city to select it |
+| Left click | Click menu/overlay buttons; select a unit, shift-click to add, click a city |
 | Left drag | Box-select your units |
 | Right drag | Draw a path for the selection (or a rally path for a selected city) |
 | `SHIFT` + right drag | Append a stage to the staged route; markers show each stage |
@@ -125,6 +161,7 @@ firewall. This is LAN play, not NAT traversal; both ends must run the same game 
 | `H` | Hold position (selected units stop and do not chase) |
 | `X` | Stop / cancel current orders |
 | `1` `2` `3` | With a city selected: produce scout / soldier / heavy. In the offline menu: switch AI difficulty |
+| City buttons | Click SCOUT / SOLDIER / HEAVY / FORTIFY above the status strip (touch and mouse) |
 | `SHIFT` + `1` `2` `3` | Queue another scout / soldier / heavy at the selected city (max 5) |
 | `CTRL` + `1`–`6` | Store the current selection as a control group |
 | `1`–`6` | Recall that group when no city is selected |
@@ -139,7 +176,7 @@ firewall. This is LAN play, not NAT traversal; both ends must run the same game 
 | Mouse wheel | Zoom around the cursor |
 | `SPACE` | Pause / resume (or send staged orders when a route is staged) |
 | `T` | Open / close the tutorial and controls screen |
-| `ESC` | Close help, clear selection, or leave the menu |
+| `ESC` / Android Back | Close help, clear selection, or leave the menu |
 | `R` | Restart with a new random map |
 | `Q` | Quit |
 

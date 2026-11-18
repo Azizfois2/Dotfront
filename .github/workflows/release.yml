@@ -1,0 +1,117 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y build-essential libx11-dev libxext-dev
+      - run: make
+      - name: Package
+        run: |
+          tag="${GITHUB_REF_NAME:-snapshot}"
+          dir="war-of-dots-${tag}-linux-x86_64"
+          mkdir -p "dist/$dir"
+          cp wod_c README.md CHANGELOG.md screenshot.png "dist/$dir/"
+          cp assets/icon.png "dist/$dir/war-of-dots.png"
+          cp packaging/linux/war-of-dots.desktop packaging/linux/install.sh "dist/$dir/"
+          tar -C dist -czf "dist/$dir.tar.gz" "$dir"
+          rm -rf "dist/$dir"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y mingw-w64 zip
+      - run: make windows
+      - name: Package
+        run: |
+          tag="${GITHUB_REF_NAME:-snapshot}"
+          dir="war-of-dots-${tag}-windows-x86_64"
+          mkdir -p "dist/$dir"
+          cp wod_c.exe README.md CHANGELOG.md "dist/$dir/"
+          cp assets/icon.png "dist/$dir/war-of-dots.png"
+          (cd dist && zip -qr "$dir.zip" "$dir")
+          rm -rf "dist/$dir"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build universal app bundle
+        run: make clean && make app MACOS_ARCH="-arch arm64 -arch x86_64"
+      - name: Package
+        run: |
+          tag="${GITHUB_REF_NAME:-snapshot}"
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent "War of Dots.app" \
+            "dist/war-of-dots-${tag}-macos-universal.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android NDK
+        run: sdkmanager "ndk;27.2.12479018" "platforms;android-35" "build-tools;35.0.0"
+      - name: Build signed APK
+        env:
+          WOD_VERSION: ${{ github.ref_name }}
+          WOD_VERSION_CODE: '2'
+          WOD_KEYSTORE: ${{ github.workspace }}/android/release.keystore
+          WOD_KEYSTORE_PASS: warofdots-release
+          WOD_KEY_PASS: warofdots-release
+          WOD_KEY_ALIAS: warofdots
+        run: |
+          keytool -genkeypair -v -keystore android/release.keystore \
+            -alias warofdots -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$WOD_KEYSTORE_PASS" -keypass "$WOD_KEY_PASS" \
+            -dname "CN=War of Dots"
+          android/build-apk.sh assembleRelease
+          mkdir -p dist
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          apksigner verify --verbose "$apk"
+          cp "$apk" "dist/war-of-dots-${GITHUB_REF_NAME:-snapshot}-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: War of Dots ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/*

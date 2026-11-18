@@ -1,4 +1,5 @@
 #include "render.h"
+#include "version.h"
 #include "font.h"
 #include <stdio.h>
 #include <string.h>
@@ -11,6 +12,23 @@ static void fmt_time(char *buf, size_t n, float t) {
 static void shadow_text(FB *fb, int cx, int y, const char *s, int scale, uint32_t color) {
     gfx_text_center(fb, cx + 2, y + 2, s, scale, 0x99000000);
     gfx_text_center(fb, cx, y, s, scale, color);
+}
+
+/* 0 normal, 1 hover, 2 primary/selected, 3 disabled */
+static void ui_button(FB *fb, int cx, int y, int w, int h, const char *label,
+                      int scale, int state) {
+    uint32_t fill = 0xE010161F, edge = 0xFF33465A, text = C_WHITE;
+    if (state == 1) { fill = 0xF01A2633; edge = 0xFF8FD8FF; }
+    else if (state == 2) { fill = 0xF01A1A12; edge = C_GOLD; text = C_GOLD; }
+    else if (state == 3) { fill = 0xB00C1118; edge = 0xFF252E3A; text = 0xFF5C6773; }
+    gfx_fill_a(fb, cx - w / 2, y, w, h, fill, 255);
+    gfx_rect(fb, (float)(cx - w / 2), (float)y, (float)w, (float)h, edge);
+    int ty = y + (h - 7 * scale) / 2 + 1;
+    gfx_text_center(fb, cx, ty, label, scale, text);
+}
+
+static int ui_rect(int mx, int my, int x, int y, int w, int h) {
+    return mx >= x && my >= y && mx < x + w && my < y + h;
 }
 
 /* ------------------------------------------------------------------ */
@@ -150,7 +168,7 @@ static void draw_topbar(FB *fb, const Game *g) {
     }
 }
 
-static void draw_selection_info(FB *fb, const Game *g) {
+static void draw_selection_info(FB *fb, const Game *g, const View *v) {
     char buf[128];
     int y = fb->h - 60;
     if (g->nsel > 0) {
@@ -183,10 +201,28 @@ static void draw_selection_info(FB *fb, const Game *g) {
     } else if (g->sel_city >= 0) {
         snprintf(buf, sizeof(buf), "ENEMY / NEUTRAL CITY  -  MOVE UNITS INSIDE TO CAPTURE");
     } else {
+#ifdef WOD_TOUCH
+        snprintf(buf, sizeof(buf), "TAP A UNIT OR CITY  -  LONG PRESS TO MOVE  -  TWO FINGERS PAN");
+#else
         snprintf(buf, sizeof(buf), "LEFT DRAG TO BOX-SELECT  -  RIGHT DRAG TO MOVE");
+#endif
     }
     gfx_fill_a(fb, 10, y - 4, font_text_width(buf, 2) + 16, 24, 0xFF080B10, 165);
     gfx_text(fb, 18, y, buf, 2, 0xFFCFE3F5);
+
+    if (g->nsel == 0 && g->sel_city >= 0 &&
+        g->cities[g->sel_city].owner == g->local) {
+        int hover = ui_hit_test(g, v, v->mouse_x, v->mouse_y);
+        int by = fb->h - 100;
+        ui_button(fb, 71, by, 106, 30, "1  SCOUT", 2,
+                  hover == UI_PROD_SCOUT ? 1 : 0);
+        ui_button(fb, 193, by, 130, 30, "2  SOLDIER", 2,
+                  hover == UI_PROD_SOLDIER ? 1 : 0);
+        ui_button(fb, 315, by, 112, 30, "3  HEAVY", 2,
+                  hover == UI_PROD_HEAVY ? 1 : 0);
+        ui_button(fb, 449, by, 140, 30, "F  FORTIFY", 2,
+                  hover == UI_CITY_FORTIFY ? 1 : 0);
+    }
 }
 
 static void draw_help(FB *fb, const Game *g, const View *v) {
@@ -213,6 +249,9 @@ static void draw_menu(FB *fb, const Game *g, const View *v) {
     int cx = fb->w / 2;
     int y = fb->h / 2 - 200;
     shadow_text(fb, cx, y, "WAR OF DOTS", 7, C_WHITE);
+    char ver[48];
+    snprintf(ver, sizeof(ver), "C EDITION  v%s", WOD_VERSION);
+    shadow_text(fb, cx, y - 34, ver, 1, 0xFF71808F);
 
     char line[128];
     snprintf(line, sizeof(line), "SEED %u    %d CITIES    %s / %s",
@@ -220,62 +259,76 @@ static void draw_menu(FB *fb, const Game *g, const View *v) {
              world_shape_name(g->w.shape));
     shadow_text(fb, cx, y + 86, line, 2, 0xFF9FB4C8);
 
-    snprintf(line, sizeof(line), "<   %d OPPONENTS   >", g->players - 1);
+    int hover = ui_hit_test(g, v, v->mouse_x, v->mouse_y);
+    snprintf(line, sizeof(line), "%d OPPONENTS", g->players - 1);
     shadow_text(fb, cx, y + 120, line, 3, C_WHITE);
-    shadow_text(fb, cx, y + 154, "LEFT / RIGHT CHOOSE OPPONENTS BEFORE STARTING", 1,
+    ui_button(fb, cx - 130, y + 112, 38, 36, "<", 3,
+              hover == UI_MENU_LEFT ? 1 : 0);
+    ui_button(fb, cx + 130, y + 112, 38, 36, ">", 3,
+              hover == UI_MENU_RIGHT ? 1 : 0);
+    shadow_text(fb, cx, y + 154, "LEFT / RIGHT OR CLICK THE ARROWS", 1,
                 0xFF71808F);
 
-    /* faction chips so the player knows who is on the map */
-    int chip_w = 18;
-    int total_w = g->players * chip_w;
-    int px = cx - total_w / 2;
+    int px = cx - (g->players * 18) / 2;
     for (int p = 0; p < g->players; p++) {
         gfx_disc(fb, (float)px + 7.0f, (float)y + 184.0f, 6.0f, owner_color(p));
-        px += chip_w;
+        px += 18;
     }
 
-    shadow_text(fb, cx, y + 206, "SPACE   START MATCH", 3, C_WHITE);
+    ui_button(fb, cx, y + 196, 360, 38, "START MATCH", 3,
+              hover == UI_MENU_START ? 1 : 2);
     if (g->save_available)
-        shadow_text(fb, cx, y + 246, "F9   CONTINUE SAVED MATCH", 2, 0xFFBFD4E6);
+        ui_button(fb, cx, y + 242, 360, 32, "CONTINUE SAVED MATCH", 2,
+                  hover == UI_MENU_CONTINUE ? 1 : 0);
 
-    const char *names[DIFF_COUNT] = { "EASY", "NORMAL", "HARD" };
-    int total = 0;
-    for (int i = 0; i < DIFF_COUNT; i++) total += font_text_width(names[i], 2) + 46;
-    int x = cx - total / 2;
+    const char *names[DIFF_COUNT] = { "1 EASY", "2 NORMAL", "3 HARD" };
     for (int i = 0; i < DIFF_COUNT; i++) {
-        char item[32];
-        snprintf(item, sizeof(item), "%d %s", i + 1, names[i]);
-        uint32_t col = (g->difficulty[1] == i) ? C_WHITE : 0xFF71808F;
-        gfx_text(fb, x, y + 290, item, 2, col);
-        x += font_text_width(item, 2) + 46;
+        int bx = cx + (i - 1) * 122;
+        int act = UI_MENU_EASY + i;
+        int state = hover == act ? 1 : (g->difficulty[1] == i ? 2 : 0);
+        ui_button(fb, bx, y + 284, 112, 32, names[i], 2, state);
     }
 
-    shadow_text(fb, cx, y + 336, "R NEW MAP     M SOUND ON/OFF     Q QUIT", 2, 0xFF9FB4C8);
-    shadow_text(fb, cx, y + 372, "LMB SELECT   RMB MOVE   SHIFT+RMB STAGE PATH   SPACE SEND", 1,
+    ui_button(fb, cx - 150, y + 326, 180, 30, "R  NEW MAP", 2,
+              hover == UI_MENU_NEW ? 1 : 0);
+    snprintf(line, sizeof(line), "M  SOUND %s", g->sound_on ? "ON" : "OFF");
+    ui_button(fb, cx + 40, y + 326, 180, 30, line, 2,
+              hover == UI_MENU_SOUND ? 1 : 0);
+    ui_button(fb, cx + 190, y + 326, 100, 30, "Q  QUIT", 2,
+              hover == UI_MENU_QUIT ? 1 : 0);
+    ui_button(fb, cx, y + 364, 160, 30, "T  HELP", 2,
+              hover == UI_MENU_HELP ? 1 : 0);
+
+#ifdef WOD_TOUCH
+    shadow_text(fb, cx, y + 404, "TAP TO SELECT AND USE BUTTONS", 1, 0xFF71808F);
+    shadow_text(fb, cx, y + 422, "LONG PRESS TO MOVE   TWO FINGERS TO PAN / PINCH ZOOM", 1,
                 0xFF71808F);
-    shadow_text(fb, cx, y + 390, "1/2/3 UNIT   SHIFT+1/2/3 QUEUE   T HELP   F FORTIFY   F5/F9 SAVE/LOAD", 1,
+#else
+    shadow_text(fb, cx, y + 404, "LMB SELECT   RMB MOVE   SHIFT+RMB STAGE PATH   SPACE SEND", 1,
                 0xFF71808F);
+    shadow_text(fb, cx, y + 422, "1/2/3 UNIT   SHIFT+1/2/3 QUEUE   T HELP   F FORTIFY   F5/F9 SAVE/LOAD", 1,
+                0xFF71808F);
+#endif
     if (v->net_status[0]) {
-        gfx_fill_a(fb, cx - 320, y + 418, 640, 34, 0xFF101820, 220);
-        gfx_text_center(fb, cx, y + 428, v->net_status, 2, 0xFF7FD8C8);
+        gfx_fill_a(fb, cx - 320, y + 442, 640, 34, 0xFF101820, 220);
+        gfx_text_center(fb, cx, y + 452, v->net_status, 2, 0xFF7FD8C8);
     }
 }
-
-static void draw_eliminated(FB *fb, const Game *g) {
+static void draw_eliminated(FB *fb, const Game *g, const View *v) {
     gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 190);
-    int cy = fb->h / 2 - 76;
+    int cy = fb->h / 2 - 88;
+    int hover = ui_hit_test(g, v, v->mouse_x, v->mouse_y);
     shadow_text(fb, fb->w / 2, cy, "YOU WERE ELIMINATED", 6, C_WHITE);
-    shadow_text(fb, fb->w / 2, cy + 62,
-                owner_name(g->local), 3, owner_color(g->local));
-    shadow_text(fb, fb->w / 2, cy + 116,
-                "R   NEW GAME", 3, 0xFFCFE3F5);
-    shadow_text(fb, fb->w / 2, cy + 152,
-                "SPACE   WATCH THE REST (NO FOG)", 3, 0xFFCFE3F5);
-    shadow_text(fb, fb->w / 2, cy + 188,
-                "Q   QUIT", 3, 0xFFCFE3F5);
+    shadow_text(fb, fb->w / 2, cy + 58, owner_name(g->local), 3,
+                owner_color(g->local));
+    ui_button(fb, fb->w / 2, cy + 102, 380, 38, "R  NEW GAME", 3,
+              hover == UI_ELIM_RESTART ? 1 : 0);
+    ui_button(fb, fb->w / 2, cy + 148, 380, 38, "SPACE  WATCH THE REST", 3,
+              hover == UI_ELIM_SPECTATE ? 1 : 0);
+    ui_button(fb, fb->w / 2, cy + 194, 380, 38, "Q  QUIT", 3,
+              hover == UI_ELIM_QUIT ? 1 : 0);
 }
-
-static void draw_tutorial(FB *fb) {
+static void draw_tutorial(FB *fb, const Game *g, const View *v) {
     gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 238);
     int cx = fb->w / 2;
     shadow_text(fb, cx, 42, "HOW TO PLAY", 5, C_WHITE);
@@ -307,21 +360,18 @@ static void draw_tutorial(FB *fb) {
     gfx_text(fb, rx, y + 208, "Minimap LMB jumps the camera; RMB gives orders.", 1, 0xFFCFE3F5);
     gfx_text(fb, rx, y + 226, "Spectating: 1-6 focuses a faction, Q quits.", 1, 0xFFCFE3F5);
 
-    shadow_text(fb, cx, fb->h - 70, "T OR ESC   CLOSE HELP", 2, 0xFFBFD4E6);
+    int hover = ui_hit_test(g, v, v->mouse_x, v->mouse_y);
+    ui_button(fb, cx, fb->h - 82, 380, 34,
+              "CLICK  /  T  /  ESC   CLOSE HELP", 2,
+              hover == UI_HELP_CLOSE ? 1 : 0);
 }
 
 void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
     if (!g->menu && g->winner < 0) {
         draw_topbar(fb, g);
-        draw_selection_info(fb, g);
+        draw_selection_info(fb, g, v);
         draw_minimap(fb, g, r, v);
         draw_help(fb, g, v);
-    }
-
-    if (g->notice_t > 0.0f && !g->menu && g->winner < 0) {
-        int w = font_text_width(g->notice, 2) + 28;
-        gfx_fill_a(fb, (fb->w - w) / 2, fb->h - 104, w, 28, 0xFF080B10, 220);
-        gfx_text_center(fb, fb->w / 2, fb->h - 96, g->notice, 2, C_WHITE);
     }
 
     if (g->winner >= 0) {
@@ -350,10 +400,16 @@ void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
                      g->lost[p], g->peak[p]);
             gfx_text(fb, lx, ly, line, 1, owner_color(p));
         }
-        shadow_text(fb, fb->w / 2, cy + 128 + rows * 16 + 22,
-                    "R NEW MATCH    F9 LOAD    Q QUIT", 2, 0xFFBFD4E6);
+        int by = cy + 128 + rows * 16 + 16;
+        int hover = ui_hit_test(g, v, v->mouse_x, v->mouse_y);
+        ui_button(fb, fb->w / 2 - 170, by, 150, 34, "R  NEW MATCH", 2,
+                  hover == UI_WIN_RESTART ? 1 : 0);
+        ui_button(fb, fb->w / 2, by, 140, 34, "F9  LOAD", 2,
+                  hover == UI_WIN_LOAD ? 1 : 0);
+        ui_button(fb, fb->w / 2 + 160, by, 120, 34, "Q  QUIT", 2,
+                  hover == UI_WIN_QUIT ? 1 : 0);
     } else if (g->eliminated) {
-        draw_eliminated(fb, g);
+        draw_eliminated(fb, g, v);
     } else if (g->menu) {
         draw_menu(fb, g, v);
     } else if (g->paused) {
@@ -361,9 +417,81 @@ void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
         int starting = g->time < 0.01f;
         shadow_text(fb, fb->w / 2, fb->h / 2 - 40,
                     starting ? "WAR OF DOTS" : "PAUSED", 7, C_WHITE);
-        shadow_text(fb, fb->w / 2, fb->h / 2 + 34,
-                    starting ? "SPACE TO START" : "SPACE TO RESUME", 3, 0xFFBFD4E6);
+        int hover = ui_hit_test(g, v, v->mouse_x, v->mouse_y);
+        ui_button(fb, fb->w / 2, fb->h / 2 + 24, 390, 42,
+                  starting ? "CLICK OR SPACE   START" : "CLICK OR SPACE   RESUME", 2,
+                  hover == UI_PAUSE_RESUME ? 1 : 0);
     }
 
-    if (v->show_help) draw_tutorial(fb);
+    if (g->notice_t > 0.0f && g->winner < 0) {
+        int w = font_text_width(g->notice, 2) + 28;
+        int ny = g->menu ? 54 : fb->h - 104;
+        gfx_fill_a(fb, (fb->w - w) / 2, ny, w, 28, 0xFF080B10, 220);
+        gfx_text_center(fb, fb->w / 2, ny + 8, g->notice, 2, C_WHITE);
+    }
+
+    if (v->show_help) draw_tutorial(fb, g, v);
+}
+
+int ui_hit_test(const Game *g, const View *v, int mx, int my) {
+    int cx = v->w / 2;
+    if (v->show_help) {
+        if (ui_rect(mx, my, cx - 190, v->h - 82, 380, 34))
+            return UI_HELP_CLOSE;
+        return UI_NONE;
+    }
+
+    if (g->winner >= 0) {
+        int cy = v->h / 2 - 60;
+        int rows = (g->players + 1) / 2;
+        int by = cy + 128 + rows * 16 + 16;
+        if (ui_rect(mx, my, cx - 245, by, 150, 34)) return UI_WIN_RESTART;
+        if (ui_rect(mx, my, cx - 70, by, 140, 34)) return UI_WIN_LOAD;
+        if (ui_rect(mx, my, cx + 100, by, 120, 34)) return UI_WIN_QUIT;
+        return UI_NONE;
+    }
+
+    if (g->eliminated) {
+        int cy = v->h / 2 - 88;
+        if (ui_rect(mx, my, cx - 190, cy + 102, 380, 38)) return UI_ELIM_RESTART;
+        if (ui_rect(mx, my, cx - 190, cy + 148, 380, 38)) return UI_ELIM_SPECTATE;
+        if (ui_rect(mx, my, cx - 190, cy + 194, 380, 38)) return UI_ELIM_QUIT;
+        return UI_NONE;
+    }
+
+    if (g->menu) {
+        int y = v->h / 2 - 200;
+        if (ui_rect(mx, my, cx - 149, y + 112, 38, 36)) return UI_MENU_LEFT;
+        if (ui_rect(mx, my, cx + 111, y + 112, 38, 36)) return UI_MENU_RIGHT;
+        if (ui_rect(mx, my, cx - 180, y + 196, 360, 38)) return UI_MENU_START;
+        if (g->save_available && ui_rect(mx, my, cx - 180, y + 242, 360, 32))
+            return UI_MENU_CONTINUE;
+        for (int i = 0; i < DIFF_COUNT; i++) {
+            int bx = cx + (i - 1) * 122;
+            if (ui_rect(mx, my, bx - 56, y + 284, 112, 32))
+                return UI_MENU_EASY + i;
+        }
+        if (ui_rect(mx, my, cx - 240, y + 326, 180, 30)) return UI_MENU_NEW;
+        if (ui_rect(mx, my, cx - 50, y + 326, 180, 30)) return UI_MENU_SOUND;
+        if (ui_rect(mx, my, cx + 140, y + 326, 100, 30)) return UI_MENU_QUIT;
+        if (ui_rect(mx, my, cx - 80, y + 364, 160, 30)) return UI_MENU_HELP;
+        return UI_NONE;
+    }
+
+    if (g->paused) {
+        if (ui_rect(mx, my, cx - 195, v->h / 2 + 24, 390, 42))
+            return UI_PAUSE_RESUME;
+        return UI_NONE;
+    }
+
+    if (g->nsel == 0 && g->sel_city >= 0 &&
+        g->cities[g->sel_city].owner == g->local) {
+        int by = v->h - 100;
+        if (ui_rect(mx, my, 18, by, 106, 30)) return UI_PROD_SCOUT;
+        if (ui_rect(mx, my, 128, by, 130, 30)) return UI_PROD_SOLDIER;
+        if (ui_rect(mx, my, 259, by, 112, 30)) return UI_PROD_HEAVY;
+        if (ui_rect(mx, my, 379, by, 140, 30)) return UI_CITY_FORTIFY;
+    }
+
+    return UI_NONE;
 }

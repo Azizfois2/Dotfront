@@ -13,6 +13,7 @@
 #include <time.h>
 
 #include "platform.h"
+#include "icon_rgba.h"
 
 static Platform *g_plat;
 
@@ -32,6 +33,24 @@ struct Platform {
     uint32_t *fbuf;   /* non-SHM fallback */
     int       quit;
 };
+
+static void set_window_icon(Platform *p) {
+    const int w = WOD_ICON_W, h = WOD_ICON_H;
+    unsigned long *data = malloc((size_t)(2 + w * h) * sizeof(unsigned long));
+    if (!data) return;
+    data[0] = (unsigned long)w;
+    data[1] = (unsigned long)h;
+    for (int i = 0; i < w * h; i++) {
+        const unsigned char *c = &wod_icon_rgba[i * 4];
+        data[2 + i] = ((unsigned long)c[3] << 24) |
+                      ((unsigned long)c[0] << 16) |
+                      ((unsigned long)c[1] << 8) | (unsigned long)c[2];
+    }
+    Atom prop = XInternAtom(p->dpy, "_NET_WM_ICON", False);
+    XChangeProperty(p->dpy, p->win, prop, XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)data, 2 + w * h);
+    free(data);
+}
 
 static PlatKey map_key(KeySym ks) {
     switch (ks) {
@@ -153,6 +172,7 @@ Platform *plat_open(const char *title, int w, int h) {
     p->wm_delete = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(dpy, p->win, &p->wm_delete, 1);
     XStoreName(dpy, p->win, title);
+    set_window_icon(p);
     XMapWindow(dpy, p->win);
     XSync(dpy, False);
     center_in_workarea(p);
