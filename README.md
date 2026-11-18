@@ -68,8 +68,9 @@ landscape APK for arm64 and armeabi-v7a devices; no Play Store account is needed
 
 ## Build
 
+From the repository root:
+
 ```sh
-cd c_rts
 make            # Linux/X11, or native macOS/Cocoa
 make windows    # Windows .exe (cross-compile with mingw-w64)
 make sdl        # optional SDL2 build on Linux -> dotfront_sdl
@@ -81,9 +82,17 @@ Requirements:
 
 - Linux: `gcc` (or clang), `make`, X11 headers
   (Debian/Ubuntu: `sudo apt install build-essential libx11-dev libxext-dev`).
-- Windows: `make windows` from Linux with `x86_64-w64-mingw32-gcc` and
-  `x86_64-w64-mingw32-windres` installed (`sudo apt install mingw-w64`). On Windows itself, use MSYS2/MinGW and
-  `make windows MINGW=gcc`. No SDL or other runtime DLLs are needed.
+- Windows (native): install the MSYS2 UCRT64 toolchain
+  (`pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-make`), open the
+  **MSYS2 UCRT64** shell, and from the repository root run
+  `mingw32-make windows WINDRES=windres`. The `WINDRES` override is needed
+  because MSYS2 ships `windres`, not the cross-prefixed
+  `x86_64-w64-mingw32-windres` the Makefile defaults to. Run the build from the
+  MSYS2 shell: the Makefile recipes use `rm -rf`, `uname` and shell conditionals,
+  so `cmd.exe`/PowerShell will not work.
+- Windows (cross-compile from Linux): `make windows` with
+  `x86_64-w64-mingw32-gcc` and `x86_64-w64-mingw32-windres` installed
+  (`sudo apt install mingw-w64`). No SDL or other runtime DLLs are needed.
 - macOS: Xcode command-line tools only, then plain `make` (or `make app` for the
   bundle). The window and input use AppKit/Cocoa, with no SDL or Homebrew dependency. If the native backend
   gives you trouble, `brew install sdl2 && make sdl` builds the SDL2 fallback
@@ -97,7 +106,6 @@ The Windows executable is `dotfront.exe`; everything else is identical. Source a
 The Android port uses the same SDL2 backend and C game core, wrapped in a small Gradle project:
 
 ```sh
-cd c_rts
 ANDROID_HOME=$HOME/android-sdk make android
 # APK: android/app/build/outputs/apk/release/app-release.apk
 ```
@@ -288,11 +296,13 @@ change `WIN_W`/`WIN_H` in `src/platform.h`.
 
 ## Known limitations / next steps
 
-- Windows support is compile-tested via mingw-w64 but was not run on a Windows
-  machine in this environment.
+- Windows was verified natively with the MSYS2 UCRT64 toolchain (GCC 15.2.0):
+  `mingw32-make windows WINDRES=windres` builds `dotfront.exe` without warnings,
+  the window opens and a match plays, headless simulation runs, and a LAN
+  host/client pair connects over TCP. It has not been played through a full
+  human match on Windows yet.
 - The macOS Cocoa build is compiled, launched and screenshotted on a real macOS
   runner by CI, but it has not been played on a Mac by a human yet.
-- No network play.
 - The AI is tuned by headless simulation, not by long human playtesting.
 - Sound is limited to short platform beeps, not a music/audio system.
 - The renderer only needs a pixel buffer, so new platforms implement the small
