@@ -153,9 +153,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Install Android NDK
-        run: sdkmanager "ndk;27.2.12479018" "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          SDKM=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager | head -1)
+          yes | "$SDKM" --licenses > /dev/null
+          "$SDKM" "ndk;27.2.12479018" "platforms;android-35" "build-tools;35.0.0"
       - name: Build debug APK
         run: android/build-apk.sh assembleDebug
       - name: Check APK
