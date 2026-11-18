@@ -4,7 +4,7 @@ A small single-player RTS in C, inspired by the Python [War of Dots](https://git
 You command blue dots, the computer commands red dots, and the whole match runs offline on one machine.
 
 No game engine, no assets, no image libraries: the game draws into a 32-bit framebuffer and a
-small platform layer presents it. Linux uses Xlib/MIT-SHM, Windows uses GDI, macOS uses SDL2,
+small platform layer presents it. Linux uses Xlib/MIT-SHM, Windows uses GDI, macOS uses native Cocoa,
 and the game core is shared. Build dependencies are a C compiler, `make`, and the native
 platform SDK/headers.
 
@@ -41,8 +41,10 @@ Requirements:
 - Windows: `make windows` from Linux with `x86_64-w64-mingw32-gcc` installed
   (`sudo apt install mingw-w64`). On Windows itself, use MSYS2/MinGW and
   `make windows MINGW=gcc`. No SDL or other runtime DLLs are needed.
-- macOS: Xcode command-line tools plus SDL2 (`brew install sdl2`), then plain
-  `make`. `make` selects the SDL2 backend automatically on Darwin.
+- macOS: Xcode command-line tools only, then plain `make`. The window and input
+  use AppKit/Cocoa, with no SDL or Homebrew dependency. If the native backend
+  gives you trouble, `brew install sdl2 && make sdl` builds the SDL2 fallback
+  as `wod_c_sdl`.
 
 The Windows executable is `wod_c.exe`; everything else is identical.
 
@@ -112,7 +114,8 @@ src/font.h/c   5x7 bitmap font
 src/platform.h      window/presentation/event/time interface shared by all builds
 src/platform_x11.c  X11 backend: Xlib window + double-buffered MIT-SHM (XImage fallback)
 src/platform_win32.c Win32 backend: GDI window + top-down DIB, no external runtime
-src/platform_sdl.c   SDL2 backend used by macOS (also buildable on Linux via `make sdl`)
+src/platform_cocoa.m native macOS backend: NSWindow/NSView, Cocoa events, CoreGraphics image
+src/platform_sdl.c   optional SDL2 backend (Linux `make sdl`, macOS `make macos-sdl`)
 src/main.c          camera, event handling, fixed-step loop, headless mode
 ```
 
@@ -125,8 +128,9 @@ Rendering runs at 1280×720 but is resolution-independent — change `WIN_W`/`WI
 - The AI has full map knowledge (fog applies to the player only).
 - Windows support is compile-tested via mingw-w64 but was not run on a Windows
   machine in this environment.
-- The macOS path is the same SDL2 backend that was built and run on Linux here;
-  it has not been executed on macOS hardware yet.
+- The native Cocoa backend was syntax-checked against stub AppKit headers but
+  not compiled or run on macOS hardware here. The SDL2 fallback (`make sdl`)
+  was built and run on Linux and can be used if the native build misbehaves.
 - One AI personality and no difficulty levels; it is deliberately aggressive.
 - No sound, no map/save loading, no network play.
 - The AI is tuned by simulation, not by long human playtesting.

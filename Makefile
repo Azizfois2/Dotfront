@@ -26,7 +26,7 @@ $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJ) $(BIN) wod_c.exe wod_c_sdl
+	rm -f $(OBJ) $(BIN) wod_c.exe wod_c_sdl src/platform_cocoa.o
 
 run: $(BIN)
 	./$(BIN)
@@ -38,10 +38,18 @@ sdl:
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(CORE) src/platform_sdl.c -o wod_c_sdl \
 	    $(LDFLAGS) $(SDL_LIBS) -lm
 
-macos:
+# Native macOS build: Cocoa window/view, no SDL or Homebrew dependency.
+macos: $(CORE:.c=.o) src/platform_cocoa.o
+	$(CC) $(CORE:.c=.o) src/platform_cocoa.o -o wod_c -framework Cocoa -lm
+
+src/platform_cocoa.o: src/platform_cocoa.m
+	$(CC) -O2 -Wall -Wextra -Wno-deprecated-declarations -c $< -o $@
+
+# Optional fallback for macOS (and a general-purpose SDL2 build).
+macos-sdl:
 	@if [ -z "$(SDL_CFLAGS)" ]; then \
 	    echo "SDL2 not found: run 'brew install sdl2'"; exit 1; fi
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(CORE) src/platform_sdl.c -o wod_c \
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(CORE) src/platform_sdl.c -o wod_c_sdl \
 	    $(LDFLAGS) $(SDL_LIBS) -lm
 
 # Native Windows build (no SDL, no X11): Win32 GDI + DIB presentation.
@@ -49,4 +57,4 @@ windows:
 	$(MINGW) $(CFLAGS) $(CORE) src/platform_win32.c -o wod_c.exe \
 	    $(LDFLAGS) -lgdi32 -luser32 -lwinmm -lm -mwindows
 
-.PHONY: all clean run windows sdl macos
+.PHONY: all clean run windows sdl macos macos-sdl
