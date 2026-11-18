@@ -211,6 +211,20 @@ static void draw_city(FB *fb, const Game *g, const View *v, int idx) {
                 -1.5707963f, -1.5707963f + c->cap * 6.2831853f, owner_color(who));
     }
 
+    if (c->fortified) {
+        for (int k = 0; k < 4; k++) {
+            float a = -1.5707963f + (float)k * 1.5707963f + 0.22f;
+            gfx_arc(fb, s.x, s.y, r + 7.0f * z, fmaxf(1.5f, 2.5f * z),
+                    a, a + 1.13f, 0xFFE8C25A);
+        }
+    } else if (c->fort_t > 0.0f) {
+        float prog = 1.0f - c->fort_t / 10.0f;
+        if (prog < 0.0f) prog = 0.0f;
+        if (prog > 1.0f) prog = 1.0f;
+        gfx_arc(fb, s.x, s.y, r + 7.0f * z, fmaxf(1.5f, 2.5f * z),
+                -1.5707963f, -1.5707963f + prog * 6.2831853f, 0xFFE8C25A);
+    }
+
     if (idx == g->sel_city) {
         gfx_ring(fb, s.x, s.y, r + 9.0f * z, 2.0f, C_WHITE);
     }
@@ -237,7 +251,9 @@ static void draw_unit(FB *fb, const Game *g, const View *v, int idx) {
         pos.y += cosf(g->time * 31.0f + (float)idx) * 1.3f;
     }
     Vec2 s = w2s(v, pos);
-    float r = fmaxf(3.0f, UNIT_R * z);
+    int ut = u->type;
+    if (ut < 0 || ut >= UT_COUNT) ut = UT_SOLDIER;
+    float r = fmaxf(3.0f, UNIT_TYPE[ut].radius * z);
     if (s.x < -20 || s.y < -20 || s.x > (float)fb->w + 20 || s.y > (float)fb->h + 20) return;
 
     uint32_t col = owner_color(u->owner);
@@ -246,13 +262,21 @@ static void draw_unit(FB *fb, const Game *g, const View *v, int idx) {
     gfx_disc(fb, s.x, s.y, r + 1.4f, 0xFF15151A);
     gfx_disc(fb, s.x, s.y, r, col);
 
-    if (u->hp < MAX_HP - 0.5f || g->selected[idx]) {
+    if (ut == UT_SCOUT) {
+        gfx_disc(fb, s.x, s.y, r * 0.34f, 0xFFF5F5F5);
+    } else if (ut == UT_HEAVY) {
+        gfx_ring(fb, s.x, s.y, r + 1.0f, fmaxf(1.0f, 1.4f * z), 0xFF15151A);
+        gfx_disc(fb, s.x, s.y, r * 0.30f, 0xFF15151A);
+    }
+
+    float maxhp = u->max_hp > 0.0f ? u->max_hp : MAX_HP;
+    if (u->hp < maxhp - 0.5f || g->selected[idx]) {
         float bw = fmaxf(10.0f, 15.0f * z);
         float bh = fmaxf(3.0f, 2.5f * z);
         float bx = s.x - bw * 0.5f;
         float by = s.y - r - bh - 4.0f;
         gfx_fill(fb, (int)bx - 1, (int)by - 1, (int)bw + 2, (int)bh + 2, 0xFF15151A);
-        float frac = clampf(u->hp / MAX_HP, 0.0f, 1.0f);
+        float frac = clampf(u->hp / maxhp, 0.0f, 1.0f);
         uint32_t hc = frac > 0.55f ? 0xFF5BE06B : (frac > 0.25f ? 0xFFE0C34B : 0xFFE05B5B);
         gfx_fill(fb, (int)bx, (int)by, (int)(bw * frac), (int)bh, hc);
     }

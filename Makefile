@@ -11,6 +11,7 @@ CORE    = src/main.c src/gfx.c src/font.c src/world.c src/game.c src/units.c \
           src/ai.c src/render.c src/hud.c
 SRC = $(CORE) src/platform_x11.c
 OBJ = $(SRC:.c=.o)
+DEP = $(OBJ:.o=.d)
 BIN = wod_c
 
 ifeq ($(UNAME_S),Darwin)
@@ -23,10 +24,12 @@ $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) $(OBJ) -o $@ $(LDFLAGS) $(LIBS)
 
 %.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+-include $(DEP)
 
 clean:
-	rm -f $(OBJ) $(BIN) wod_c.exe wod_c_sdl src/platform_cocoa.o
+	rm -f $(OBJ) $(DEP) $(BIN) wod_c.exe wod_c_sdl src/platform_cocoa.o src/platform_cocoa.d
 
 run: $(BIN)
 	./$(BIN)
@@ -43,7 +46,9 @@ macos: $(CORE:.c=.o) src/platform_cocoa.o
 	$(CC) $(CORE:.c=.o) src/platform_cocoa.o -o wod_c -framework Cocoa -lm
 
 src/platform_cocoa.o: src/platform_cocoa.m
-	$(CC) -O2 -Wall -Wextra -Wno-deprecated-declarations -c $< -o $@
+	$(CC) -O2 -Wall -Wextra -Wno-deprecated-declarations -MMD -MP -c $< -o $@
+
+-include src/platform_cocoa.d
 
 # Optional fallback for macOS (and a general-purpose SDL2 build).
 macos-sdl:

@@ -32,7 +32,7 @@ static const AiProfile *profile_for(const Game *g, int p) {
 /* Movement helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-static void give_order(Game *g, Unit *u, Vec2 target, int slot) {
+static void give_order(Game *g, Unit *u, Vec2 target, int slot, int order) {
     Vec2 pts[MAX_PATH];
     int n = world_route(&g->w, u->pos, target, pts, MAX_PATH - 1);
     if (n <= 0) {
@@ -47,6 +47,7 @@ static void give_order(Game *g, Unit *u, Vec2 target, int slot) {
     memcpy(u->path, pts, sizeof(Vec2) * (size_t)n);
     u->plen = n;
     u->pi = 0;
+    u->order = (uint8_t)order;
 }
 
 static Vec2 army_center(const Game *g, int p, Vec2 *anchor) {
@@ -163,6 +164,20 @@ static int pick_explore_point(const Game *g, int p, Vec2 from, Vec2 anchor, Vec2
     return 0;
 }
 
+/* Each city keeps a production role; higher difficulties field a mix. */
+static void choose_production(Game *g, int p, int diff) {
+    for (int i = 0; i < g->ncity; i++) {
+        City *c = &g->cities[i];
+        if (c->owner != p) continue;
+        int t = UT_SOLDIER;
+        if (diff == DIFF_NORMAL && i % 3 == 0) t = UT_SCOUT;
+        if (diff == DIFF_HARD) {
+            if (i % 5 == 0) t = UT_HEAVY;
+        }
+        c->prod_type = (uint8_t)t;
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Main decision loop                                                  */
 /* ------------------------------------------------------------------ */
@@ -170,6 +185,9 @@ static int pick_explore_point(const Game *g, int p, Vec2 from, Vec2 anchor, Vec2
 void ai_update(Game *g, int p, float dt) {
     if (g->winner >= 0 || g->paused || p < 0 || p > 1) return;
     const AiProfile *pr = profile_for(g, p);
+    int diff = g->difficulty[p];
+    if (diff < 0 || diff >= DIFF_COUNT) diff = DIFF_NORMAL;
+    choose_production(g, p, diff);
 
     g->ai_timer[p] -= dt;
     if (g->ai_timer[p] > 0.0f) return;
@@ -189,7 +207,7 @@ void ai_update(Game *g, int p, float dt) {
             if (!u->alive || u->owner != p) continue;
             if (u->pi < u->plen) continue;
             if (vdist(u->pos, target) > 520.0f) continue;
-            give_order(g, u, target, sent);
+            give_order(g, u, target, sent, ORD_MOVE);
             sent++;
         }
     }
@@ -220,10 +238,10 @@ void ai_update(Game *g, int p, float dt) {
     if (!have_goal) return;
 
     int slot = 0;
-    for (int i = 0; i < MAX_UNITS; i++) {
+    for (int i = 0; i < MAX_UNITS && slot < wave; i++) {
         Unit *u = &g->units[i];
         if (!u->alive || u->owner != p) continue;
         if (u->pi < u->plen) continue; /* already busy */
-        give_order(g, u, goal, slot++);
+        give_order(g, u, goal, slot++, ORD_MOVE);
     }
 }

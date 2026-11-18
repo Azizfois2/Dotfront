@@ -39,6 +39,13 @@ static PlatKey map_vk(WPARAM vk) {
     case '1':         return PK_1;
     case '2':         return PK_2;
     case '3':         return PK_3;
+    case VK_F5:       return PK_F5;
+    case 'F':         return PK_F;
+    case VK_F9:       return PK_F9;
+    case 'M':         return PK_M;
+    case 'G':         return PK_G;
+    case 'H':         return PK_H;
+    case 'X':         return PK_X;
     case VK_LEFT:     return PK_LEFT;
     case VK_RIGHT:    return PK_RIGHT;
     case VK_UP:       return PK_UP;
@@ -252,6 +259,16 @@ void plat_sleep(double seconds) {
     if (seconds <= 0.0) return;
     DWORD ms = (DWORD)(seconds * 1000.0);
     if (ms > 0) Sleep(ms);
+}
+
+void plat_sound(int kind) {
+    switch (kind) {
+    case PSND_SELECT:  MessageBeep(MB_ICONQUESTION); break;
+    case PSND_CAPTURE: MessageBeep(MB_ICONASTERISK); break;
+    case PSND_DEATH:   MessageBeep(MB_ICONHAND);     break;
+    case PSND_WIN:     MessageBeep(MB_ICONEXCLAMATION); break;
+    default:           MessageBeep(MB_OK);           break;
+    }
 }
 
 double plat_time(void) {

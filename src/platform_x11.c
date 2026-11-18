@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/XKBlib.h>
 #include <X11/extensions/XShm.h>
@@ -12,6 +13,8 @@
 #include <time.h>
 
 #include "platform.h"
+
+static Platform *g_plat;
 
 struct Platform {
     Display *dpy;
@@ -44,6 +47,13 @@ static PlatKey map_key(KeySym ks) {
     case XK_1:        return PK_1;
     case XK_2:        return PK_2;
     case XK_3:        return PK_3;
+    case XK_F5:       return PK_F5;
+    case XK_f: case XK_F: return PK_F;
+    case XK_F9:       return PK_F9;
+    case XK_m: case XK_M: return PK_M;
+    case XK_g: case XK_G: return PK_G;
+    case XK_h: case XK_H: return PK_H;
+    case XK_x: case XK_X: return PK_X;
     case XK_Left:     return PK_LEFT;
     case XK_Right:    return PK_RIGHT;
     case XK_Up:       return PK_UP;
@@ -62,10 +72,56 @@ void plat_sleep(double seconds) {
     nanosleep(&ts, NULL);
 }
 
+void plat_sound(int kind) {
+    static const int volume[PSND_COUNT] = { 35, 45, 70, 30, 90, 40 };
+    if (!g_plat || !g_plat->dpy) return;
+    if (kind < 0 || kind >= PSND_COUNT) kind = PSND_UI;
+    XBell(g_plat->dpy, volume[kind]);
+    XFlush(g_plat->dpy);
+}
+
 double plat_time(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
+/* Keep the window inside the WM work area so docks/panels do not cover it. */
+static void center_in_workarea(Platform *p) {
+    Atom wa = XInternAtom(p->dpy, "_NET_WORKAREA", False);
+    Atom type;
+    int fmt;
+    unsigned long n = 0, after = 0;
+    unsigned char *data = NULL;
+    if (XGetWindowProperty(p->dpy, DefaultRootWindow(p->dpy), wa, 0, 4,
+                           False, XA_CARDINAL, &type, &fmt, &n, &after,
+                           &data) == Success && data && n >= 4) {
+        long *v = (long *)data;
+        long x = v[0] + (v[2] - p->w) / 2;
+        long y = v[1] + (v[3] - p->h) / 2;
+        if (x < 0) x = 0;
+        if (y < 0) y = 0;
+        XMoveWindow(p->dpy, p->win, (int)x, (int)y);
+
+        /* Ask the WM for the same geometry; plain XMoveWindow is often
+         * overridden by the initial placement policy. */
+        Atom mr = XInternAtom(p->dpy, "_NET_MOVERESIZE_WINDOW", False);
+        XEvent e;
+        memset(&e, 0, sizeof(e));
+        e.xclient.type = ClientMessage;
+        e.xclient.window = p->win;
+        e.xclient.message_type = mr;
+        e.xclient.format = 32;
+        e.xclient.data.l[0] = 0x0F00 | (1 << 12);
+        e.xclient.data.l[1] = x;
+        e.xclient.data.l[2] = y;
+        e.xclient.data.l[3] = p->w;
+        e.xclient.data.l[4] = p->h;
+        XSendEvent(p->dpy, DefaultRootWindow(p->dpy), False,
+                   SubstructureRedirectMask | SubstructureNotifyMask, &e);
+        XFree(data);
+    }
+    XFlush(p->dpy);
 }
 
 Platform *plat_open(const char *title, int w, int h) {
@@ -77,6 +133,7 @@ Platform *plat_open(const char *title, int w, int h) {
     Platform *p = calloc(1, sizeof(*p));
     if (!p) { XCloseDisplay(dpy); return NULL; }
     p->dpy = dpy;
+    g_plat = p;
     p->w = w;
     p->h = h;
 
@@ -90,6 +147,8 @@ Platform *plat_open(const char *title, int w, int h) {
     XSetWMProtocols(dpy, p->win, &p->wm_delete, 1);
     XStoreName(dpy, p->win, title);
     XMapWindow(dpy, p->win);
+    XSync(dpy, False);
+    center_in_workarea(p);
 
     Bool detectable;
     XkbSetDetectableAutoRepeat(dpy, True, &detectable);
@@ -243,5 +302,6 @@ void plat_close(Platform *p) {
     XFreeGC(p->dpy, p->gc);
     XDestroyWindow(p->dpy, p->win);
     XCloseDisplay(p->dpy);
+    if (g_plat == p) g_plat = NULL;
     free(p);
 }

@@ -65,12 +65,19 @@ static PlatKey key_from_event(NSEvent *e) {
         case '1':  return PK_1;
         case '2':  return PK_2;
         case '3':  return PK_3;
+        case 'm':  return PK_M;
+        case 'g':  return PK_G;
+        case 'h':  return PK_H;
+        case 'x':  return PK_X;
+        case 'f':  return PK_F;
         default:   break;
         }
     }
     switch ([e keyCode]) {
     case 49:  return PK_SPACE;
     case 53:  return PK_ESC;
+    case 96:  return PK_F5;
+    case 101: return PK_F9;
     case 123: return PK_LEFT;
     case 124: return PK_RIGHT;
     case 125: return PK_DOWN;
@@ -295,6 +302,11 @@ int plat_poll(Platform *p, PlatEvent *ev) {
         return 1;
     }
     return 0;
+}
+
+void plat_sound(int kind) {
+    (void)kind;
+    NSBeep();
 }
 
 double plat_time(void) {

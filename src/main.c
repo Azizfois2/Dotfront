@@ -11,6 +11,7 @@
 #include "platform.h"
 
 #define SIM_DT (1.0f / 60.0f)
+#define SAVE_PATH "wod_save.bin"
 
 /* ================================================================== */
 /* Headless AI-vs-AI test                                              */
@@ -134,39 +135,126 @@ static void apply_path(Game *g, Input *in) {
     in->plen = 0;
 }
 
+static void reset_after_load(Game *g, View *v, Renderer *r, Input *in) {
+    render_free(r);
+    render_init(r, g);
+    reset_view(v, g);
+    in->plen = 0;
+    in->path_active = 0;
+    in->dragging_box = 0;
+    in->left_down = in->right_down = in->middle_down = 0;
+}
+
+static void new_match(Game *g, View *v, Renderer *r, Input *in,
+                      uint32_t *seed, int *ai_diff) {
+    uint32_t s = (*seed) * 1664525u + 1013904223u;
+    *seed = s;
+    game_init(g, s);
+    g->difficulty[P_RED] = *ai_diff;
+    g->save_available = (uint8_t)game_save_exists(SAVE_PATH);
+    reset_after_load(g, v, r, in);
+    g->menu = 1;
+    g->paused = 1;
+}
+
+/* Sound masks and PSND_* share their order. */
+static void play_sfx(Game *g, Platform *plat, double now) {
+    static double last[SFX_COUNT];
+    for (int i = 0; i < SFX_COUNT; i++) {
+        if (!(g->sfx & (1u << i))) continue;
+        double gap = (i == SFX_DEATH) ? 0.18 : 0.10;
+        if (g->sound_on && now - last[i] >= gap) {
+            plat_sound(i);
+            last[i] = now;
+        }
+    }
+    g->sfx = 0;
+}
+
 static void handle_key(Game *g, View *v, Renderer *r, Input *in,
                        PlatKey key, uint32_t *seed, int *running, int *ai_diff) {
     switch (key) {
     case PK_ESC:
-        game_clear_selection(g);
+        if (g->menu) *running = 0;
+        else game_clear_selection(g);
         break;
     case PK_Z:
-        game_select_all(g);
+        if (!g->menu) game_select_all(g);
         break;
     case PK_SPACE:
-        if (g->winner < 0) g->paused = !g->paused;
+        if (g->menu) {
+            g->menu = 0;
+            g->paused = 0;
+            g->sfx |= (uint16_t)SFX_UI;
+        } else if (g->winner < 0) {
+            g->paused = !g->paused;
+            g->sfx |= (uint16_t)SFX_UI;
+        }
         break;
     case PK_1:
     case PK_2:
     case PK_3:
-        *ai_diff = (int)key - (int)PK_1;
-        g->difficulty[P_RED] = *ai_diff;
-        printf("AI difficulty: %s\n", diff_name(*ai_diff));
+        if (g->menu) {
+            *ai_diff = (int)key - (int)PK_1;
+            g->difficulty[P_RED] = *ai_diff;
+        } else {
+            game_set_city_production(g, (int)key - (int)PK_1);
+            g->sfx |= (uint16_t)SFX_UI;
+        }
         break;
-    case PK_R: {
-        uint32_t s = (*seed) * 1664525u + 1013904223u;
-        *seed = s;
-        game_init(g, s);
-        g->difficulty[P_RED] = *ai_diff;
-        render_free(r);
-        render_init(r, g);
-        reset_view(v, g);
-        in->plen = 0;
-        in->path_active = 0;
-        in->dragging_box = 0;
-        printf("new game, seed %u, AI %s\n", s, diff_name(*ai_diff));
+    case PK_R:
+        new_match(g, v, r, in, seed, ai_diff);
+        printf("new game, seed %u, AI %s\n", *seed, diff_name(*ai_diff));
         break;
-    }
+    case PK_M:
+        g->sound_on = !g->sound_on;
+        g->sfx |= (uint16_t)SFX_UI;
+        game_notice(g, g->sound_on ? "SOUND ON" : "SOUND OFF");
+        break;
+    case PK_F5:
+        if (!g->menu && g->winner < 0) {
+            if (game_save(g, SAVE_PATH)) {
+                g->save_available = 1;
+                g->sfx |= (uint16_t)SFX_UI;
+                game_notice(g, "MATCH SAVED");
+            } else {
+                game_notice(g, "SAVE FAILED");
+            }
+        }
+        break;
+    case PK_F9:
+        if (game_load(g, SAVE_PATH)) {
+            *ai_diff = g->difficulty[P_RED];
+            reset_after_load(g, v, r, in);
+            g->sfx |= (uint16_t)SFX_UI;
+        } else {
+            game_notice(g, "NO VALID SAVE");
+        }
+        break;
+    case PK_G:
+        if (!g->menu && g->nsel > 0) {
+            game_order_attack_move(g, mouse_world(v, in->last_mx, in->last_my));
+            g->sfx |= (uint16_t)SFX_ORDER;
+        }
+        break;
+    case PK_H:
+        if (!g->menu && g->nsel > 0) {
+            game_order_hold(g);
+            g->sfx |= (uint16_t)SFX_ORDER;
+        }
+        break;
+    case PK_X:
+        if (!g->menu && g->nsel > 0) {
+            game_order_stop(g);
+            g->sfx |= (uint16_t)SFX_ORDER;
+        }
+        break;
+    case PK_F:
+        if (!g->menu) {
+            game_fortify_city(g);
+            g->sfx |= (uint16_t)SFX_UI;
+        }
+        break;
     case PK_Q:
         *running = 0;
         break;
@@ -213,6 +301,7 @@ int main(int argc, char **argv) {
     game_init(&g, seed);
     g.ai_enabled[1] = 1;
     g.difficulty[P_RED] = ai_diff;
+    g.save_available = (uint8_t)game_save_exists(SAVE_PATH);
     printf("WAR OF DOTS (C) - seed %u, %d cities, AI %s\n", seed, g.ncity, diff_name(ai_diff));
 
     Renderer r;
@@ -245,6 +334,7 @@ int main(int argc, char **argv) {
                 if (ev.key == PK_SHIFT) in.shift_down = 0;
                 break;
             case PEV_MOUSEDOWN: {
+                if (g.menu || g.winner >= 0) break;
                 int mx = ev.x, my = ev.y;
                 if (ev.button == 1) {
                     in.left_down = 1;
@@ -269,6 +359,7 @@ int main(int argc, char **argv) {
                 break;
             }
             case PEV_MOUSEUP: {
+                if (g.menu || g.winner >= 0) break;
                 int mx = ev.x, my = ev.y;
                 if (ev.button == 1) {
                     if (in.dragging_box) {
@@ -277,11 +368,13 @@ int main(int argc, char **argv) {
                     } else {
                         game_click_select(&g, in.press_world, in.shift_down);
                     }
+                    if (g.nsel > 0 || g.sel_city >= 0) g.sfx |= (uint16_t)SFX_SELECT;
                     in.left_down = 0;
                     in.dragging_box = 0;
                 } else if (ev.button == 3) {
                     if (in.path_active) {
                         apply_path(&g, &in);
+                        g.sfx |= (uint16_t)SFX_ORDER;
                         in.path_active = 0;
                     }
                     in.right_down = 0;
@@ -292,6 +385,7 @@ int main(int argc, char **argv) {
             }
             case PEV_MOUSEMOVE: {
                 int mx = ev.x, my = ev.y;
+                if (g.menu || g.winner >= 0) { in.last_mx = mx; in.last_my = my; break; }
                 if (in.left_down) {
                     int dx = mx - in.press_x, dy = my - in.press_y;
                     if (dx * dx + dy * dy > 36) in.dragging_box = 1;
@@ -313,6 +407,7 @@ int main(int argc, char **argv) {
                 break;
             }
             case PEV_WHEEL: {
+                if (g.menu || g.winner >= 0) break;
                 float nz = v.zoom;
                 if (ev.wheel > 0) {
                     for (int i2 = 0; i2 < ev.wheel; i2++) nz *= 1.15f;
@@ -339,6 +434,7 @@ int main(int argc, char **argv) {
 
         /* camera keys */
         float pan = 520.0f * dt / v.zoom;
+        if (g.menu) pan = 0.0f;
         if (in.down[PK_A] || in.down[PK_LEFT])
             v.cam.x -= pan;
         if (in.down[PK_D] || in.down[PK_RIGHT])
@@ -353,6 +449,8 @@ int main(int argc, char **argv) {
         clamp_camera(&v);
         game_update(&g, dt);
         if (g.ai_enabled[1]) ai_update(&g, 1, dt);
+
+        play_sfx(&g, plat, t);
 
         v.box_active = in.dragging_box;
         if (in.dragging_box) {

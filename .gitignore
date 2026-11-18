@@ -4,3 +4,9 @@ wod_c.exe
 wod_c_sdl
 
 _macshot*.png
+_*.png
+macos-window*.png
+.shots/
+*.d
+wod_save.bin
+.shots/

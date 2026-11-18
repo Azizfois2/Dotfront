@@ -94,17 +94,35 @@ static void draw_topbar(FB *fb, const Game *g) {
     const char *dn = g->difficulty[P_RED] == DIFF_EASY ? "EASY"
                    : g->difficulty[P_RED] == DIFF_HARD ? "HARD" : "NORMAL";
     char dline[24];
-    snprintf(dline, sizeof(dline), "AI %s  (1/2/3)", dn);
+    snprintf(dline, sizeof(dline), "AI %s", dn);
     gfx_text_right(fb, fb->w - 36, 32, dline, 1, 0xFFB98A8A);
 }
 
 static void draw_selection_info(FB *fb, const Game *g) {
-    char buf[96];
+    char buf[128];
     int y = fb->h - 60;
     if (g->nsel > 0) {
-        snprintf(buf, sizeof(buf), "%d UNITS SELECTED  -  RIGHT DRAG TO SET A PATH", g->nsel);
+        int n[UT_COUNT] = {0, 0, 0};
+        for (int i = 0; i < MAX_UNITS; i++) {
+            if (!g->selected[i] || !g->units[i].alive) continue;
+            int t = g->units[i].type;
+            if (t >= 0 && t < UT_COUNT) n[t]++;
+        }
+        snprintf(buf, sizeof(buf),
+                 "%d UNITS  %d SCOUT  %d SOLDIER  %d HEAVY  -  RMB MOVE  G ATTACK-MOVE",
+                 g->nsel, n[UT_SCOUT], n[UT_SOLDIER], n[UT_HEAVY]);
     } else if (g->sel_city >= 0 && g->cities[g->sel_city].owner == P_BLUE) {
-        snprintf(buf, sizeof(buf), "CITY SELECTED  -  RIGHT DRAG TO SET A RALLY POINT");
+        const City *c = &g->cities[g->sel_city];
+        int t = c->prod_type;
+        if (t < 0 || t >= UT_COUNT) t = UT_SOLDIER;
+        if (c->fort_t > 0.0f)
+            snprintf(buf, sizeof(buf), "FORTIFYING  %.1fs  -  RMB RALLY", (double)c->fort_t);
+        else if (c->fortified)
+            snprintf(buf, sizeof(buf), "CITY FORTIFIED  %s  -  1/2/3  -  RMB RALLY",
+                     UNIT_TYPE[t].name);
+        else
+            snprintf(buf, sizeof(buf), "CITY %s  -  1/2/3  -  F FORTIFY  -  RMB RALLY",
+                     UNIT_TYPE[t].name);
     } else if (g->sel_city >= 0) {
         snprintf(buf, sizeof(buf), "ENEMY / NEUTRAL CITY  -  MOVE UNITS INSIDE TO CAPTURE");
     } else {
@@ -120,9 +138,41 @@ static void draw_help(FB *fb, const Game *g) {
     int y = fb->h - h;
     gfx_fill_a(fb, 0, y, fb->w, h, 0xFF080B10, 200);
     const char *help =
-        "LMB SELECT / BOX   RMB DRAW PATH   Z ALL   SPACE PAUSE   R RESTART   "
-        "1/2/3 AI   WASD OR MMB PAN   WHEEL ZOOM";
+        "LMB SELECT   RMB MOVE   G ATTACK-MOVE   H HOLD   X STOP   Z ALL   "
+        "SPACE PAUSE   F5 SAVE   F9 LOAD   F FORTIFY   M SOUND   R NEW   WASD PAN   WHEEL ZOOM";
     gfx_text(fb, 12, y + 8, help, 1, 0xFF8C9AAB);
+}
+
+static void draw_menu(FB *fb, const Game *g) {
+    gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 205);
+    int cx = fb->w / 2;
+    int y = fb->h / 2 - 190;
+    shadow_text(fb, cx, y, "WAR OF DOTS", 7, C_WHITE);
+
+    char line[96];
+    snprintf(line, sizeof(line), "SEED %u    %d CITIES", g->w.seed, g->ncity);
+    shadow_text(fb, cx, y + 86, line, 2, 0xFF9FB4C8);
+
+    shadow_text(fb, cx, y + 140, "SPACE   START MATCH", 3, C_WHITE);
+    if (g->save_available)
+        shadow_text(fb, cx, y + 184, "F9   CONTINUE SAVED MATCH", 2, 0xFFBFD4E6);
+
+    const char *names[DIFF_COUNT] = { "EASY", "NORMAL", "HARD" };
+    int total = 0;
+    for (int i = 0; i < DIFF_COUNT; i++) total += font_text_width(names[i], 2) + 46;
+    int x = cx - total / 2;
+    for (int i = 0; i < DIFF_COUNT; i++) {
+        char item[32];
+        snprintf(item, sizeof(item), "%d %s", i + 1, names[i]);
+        uint32_t col = (g->difficulty[P_RED] == i) ? C_WHITE : 0xFF71808F;
+        gfx_text(fb, x, y + 238, item, 2, col);
+        x += font_text_width(item, 2) + 46;
+    }
+
+    shadow_text(fb, cx, y + 286, "R NEW MAP     M SOUND ON/OFF     Q QUIT", 2, 0xFF9FB4C8);
+    shadow_text(fb, cx, y + 336, "LMB SELECT   RMB MOVE   G ATTACK-MOVE   H HOLD   X STOP",
+                1, 0xFF71808F);
+    shadow_text(fb, cx, y + 356, "1/2/3 CITY UNIT   F FORTIFY   F5 SAVE   F9 LOAD", 1, 0xFF71808F);
 }
 
 void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
@@ -130,6 +180,12 @@ void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
     draw_selection_info(fb, g);
     draw_minimap(fb, g, r, v);
     draw_help(fb, g);
+
+    if (g->notice_t > 0.0f && !g->menu && g->winner < 0) {
+        int w = font_text_width(g->notice, 2) + 28;
+        gfx_fill_a(fb, (fb->w - w) / 2, fb->h - 104, w, 28, 0xFF080B10, 220);
+        gfx_text_center(fb, fb->w / 2, fb->h - 96, g->notice, 2, C_WHITE);
+    }
 
     if (g->winner >= 0) {
         char line[64];
@@ -141,7 +197,16 @@ void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
         fmt_time(tm, sizeof(tm), g->time);
         snprintf(line, sizeof(line), "FINAL TIME  %s", tm);
         shadow_text(fb, fb->w / 2, cy + 76, line, 3, C_WHITE);
-        shadow_text(fb, fb->w / 2, cy + 122, "PRESS R TO PLAY AGAIN", 3, 0xFFBFD4E6);
+
+        snprintf(line, sizeof(line), "CAPTURES %d - %d    BUILT %d - %d",
+                 g->captures[0], g->captures[1], g->built[0], g->built[1]);
+        shadow_text(fb, fb->w / 2, cy + 120, line, 2, 0xFFCFE3F5);
+        snprintf(line, sizeof(line), "LOST %d - %d    PEAK ARMY %d - %d",
+                 g->lost[0], g->lost[1], g->peak[0], g->peak[1]);
+        shadow_text(fb, fb->w / 2, cy + 146, line, 2, 0xFFCFE3F5);
+        shadow_text(fb, fb->w / 2, cy + 188, "R NEW MATCH    F9 LOAD    Q QUIT", 2, 0xFFBFD4E6);
+    } else if (g->menu) {
+        draw_menu(fb, g);
     } else if (g->paused) {
         gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 120);
         int starting = g->time < 0.01f;

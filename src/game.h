@@ -12,7 +12,18 @@ typedef struct {
     int      nsel;
     int      sel_city;          /* index into cities, or -1 */
     int      paused;
+    int      menu;              /* start menu overlay */
+    uint8_t  save_available;
+    uint8_t  sound_on;
     int      winner;            /* -1 playing, 0 blue, 1 red */
+    /* match summary */
+    int      built[2];
+    int      lost[2];
+    int      captures[2];
+    int      peak[2];
+    char     notice[48];
+    float    notice_t;
+    uint16_t sfx;
     int      ai_enabled[2];
     Vec2     capital[2];
     float    time;
@@ -31,6 +42,10 @@ typedef struct {
 } Game;
 
 void game_init(Game *g, uint32_t seed);
+int  game_save(const Game *g, const char *path);
+int  game_load(Game *g, const char *path);
+int  game_save_exists(const char *path);
+void game_notice(Game *g, const char *text);
 void game_update(Game *g, float dt);
 void game_update_vision(Game *g);
 float game_visibility_at(const Game *g, int player, float x, float y);
@@ -41,7 +56,12 @@ int  game_visible_unit_count(const Game *g, int player, int owner);
 
 /* units.c */
 void units_update(Game *g, float dt);
-int  game_spawn_unit(Game *g, int owner, Vec2 pos);
+int  game_spawn_unit(Game *g, int owner, Vec2 pos, int type);
+void game_set_city_production(Game *g, int type);
+void game_fortify_city(Game *g);
+void game_order_attack_move(Game *g, Vec2 target);
+void game_order_hold(Game *g);
+void game_order_stop(Game *g);
 
 /* selection + orders */
 void game_clear_selection(Game *g);

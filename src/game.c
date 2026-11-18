@@ -1,6 +1,7 @@
 #include "game.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 /* ------------------------------------------------------------------ */
 /* Creation                                                            */
@@ -8,14 +9,18 @@
 
 static void update_stats(Game *g);
 
-int game_spawn_unit(Game *g, int owner, Vec2 pos) {
+int game_spawn_unit(Game *g, int owner, Vec2 pos, int type) {
+    if (type < 0 || type >= UT_COUNT) type = UT_SOLDIER;
     for (int i = 0; i < MAX_UNITS; i++) {
         Unit *u = &g->units[i];
         if (u->alive) continue;
         memset(u, 0, sizeof(*u));
         u->alive = 1;
         u->owner = owner;
-        u->hp = MAX_HP;
+        u->type = (uint8_t)type;
+        u->order = ORD_MOVE;
+        u->max_hp = UNIT_TYPE[type].hp;
+        u->hp = u->max_hp;
         u->pos = pos;
         u->pos.x = clampf(u->pos.x, UNIT_R, (float)WORLD_W - UNIT_R);
         u->pos.y = clampf(u->pos.y, UNIT_R, (float)WORLD_H - UNIT_R);
@@ -27,6 +32,7 @@ int game_spawn_unit(Game *g, int owner, Vec2 pos) {
                 if (world_walkable(&g->w, p.x, p.y)) { u->pos = p; break; }
             }
         }
+        g->built[owner]++;
         return i;
     }
     return -1;
@@ -36,6 +42,8 @@ void game_init(Game *g, uint32_t seed) {
     memset(g, 0, sizeof(*g));
     g->sel_city = -1;
     g->winner = -1;
+    g->menu = 1;
+    g->sound_on = 1;
     g->difficulty[0] = g->difficulty[1] = DIFF_NORMAL;
     for (int p2 = 0; p2 < 2; p2++)
         for (int i2 = 0; i2 < MAX_CITIES; i2++)
@@ -50,6 +58,7 @@ void game_init(Game *g, uint32_t seed) {
         g->cities[i].pos = pos[i];
         g->cities[i].owner = -1;
         g->cities[i].cap_owner = -1.0f;
+        g->cities[i].prod_type = UT_SOLDIER;
     }
 
     /* Capitals: the two most opposite cities. */
@@ -72,7 +81,7 @@ void game_init(Game *g, uint32_t seed) {
             float a = (float)k * 1.5707963f + 0.4f;
             Vec2 p = v2(g->cities[cap].pos.x + cosf(a) * 20.0f,
                         g->cities[cap].pos.y + sinf(a) * 20.0f);
-            game_spawn_unit(g, side, p);
+            game_spawn_unit(g, side, p, UT_SOLDIER);
         }
     }
     g->time = 0.0f;
@@ -113,6 +122,7 @@ static void update_cities(Game *g, float dt) {
         if (contender >= 0 && c->owner != contender) {
             float rate = 1.0f + 0.25f * (float)(diff > 0 ? diff : -diff);
             if (rate > 2.0f) rate = 2.0f;
+            if (c->fortified) rate *= 0.68f;   /* walls slow the flip */
             c->cap += dt * rate / CAPTURE_TIME;
             c->cap_owner = (float)contender;
             if (c->cap >= 1.0f) {
@@ -121,22 +131,38 @@ static void update_cities(Game *g, float dt) {
                 c->cap_owner = -1.0f;
                 c->spawn_t = 0.0f;
                 c->has_rally = 0;
+                c->prod_type = UT_SOLDIER;
+                c->fortified = 0;
+                c->fort_t = 0.0f;
+                g->captures[contender]++;
+                g->sfx |= (uint16_t)SFX_CAPTURE;
             }
         } else {
             c->cap = fmaxf(0.0f, c->cap - dt * 0.8f);
             if (c->cap <= 0.0f) c->cap_owner = -1.0f;
         }
 
-        if (c->owner < 0) continue;
+        if (c->fort_t > 0.0f) {
+            c->fort_t -= dt;
+            if (c->fort_t <= 0.0f) {
+                c->fort_t = 0.0f;
+                c->fortified = 1;
+                g->sfx |= (uint16_t)SFX_CAPTURE;
+            }
+        }
+        if (c->owner < 0 || c->fort_t > 0.0f) continue;
 
         int count = g->units_owned[c->owner];
+        int pt = c->prod_type;
+        if (pt < 0 || pt >= UT_COUNT) pt = UT_SOLDIER;
         c->spawn_t += dt;
-        float interval = PROD_BASE + PROD_PER_UNIT * (float)count;
+        float interval = (PROD_BASE + PROD_PER_UNIT * (float)count) *
+                         UNIT_TYPE[pt].build_time;
         if (count < UNIT_CAP && c->spawn_t >= interval) {
             c->spawn_t = 0.0f;
             Vec2 p = v2(c->pos.x + rnd_range(&g->w.seed, -6.0f, 6.0f),
                         c->pos.y + rnd_range(&g->w.seed, -6.0f, 6.0f));
-            int id = game_spawn_unit(g, c->owner, p);
+            int id = game_spawn_unit(g, c->owner, p, pt);
             if (id >= 0 && c->has_rally) {
                 Unit *u = &g->units[id];
                 int rn = world_route(&g->w, c->pos, c->rally, u->path, MAX_PATH);
@@ -176,17 +202,21 @@ static void vision_stamp(Game *g, int player, Vec2 pos, float radius) {
 static void update_vision(Game *g, int player) {
     memset(g->vis[player], 0, sizeof(g->vis[player]));
     for (int i = 0; i < g->ncity; i++) {
-        if (g->cities[i].owner == player)
-            vision_stamp(g, player, g->cities[i].pos, 200.0f);
+        if (g->cities[i].owner == player) {
+            float r = 200.0f + (g->cities[i].fortified ? 70.0f : 0.0f);
+            vision_stamp(g, player, g->cities[i].pos, r);
+        }
     }
     for (int i = 0; i < MAX_UNITS; i++) {
         Unit *u = &g->units[i];
         if (!u->alive || u->owner != player) continue;
         uint8_t t = world_terrain_at(&g->w, u->pos.x, u->pos.y);
-        float radius = 105.0f;
-        if (t == T_HILL) radius = 165.0f;
-        else if (t == T_FOREST) radius = 80.0f;
-        else if (t == T_WATER) radius = 90.0f;
+        int ut = u->type;
+        if (ut < 0 || ut >= UT_COUNT) ut = UT_SOLDIER;
+        float radius = UNIT_TYPE[ut].vision;
+        if (t == T_HILL) radius *= 1.50f;
+        else if (t == T_FOREST) radius *= 0.76f;
+        else if (t == T_WATER) radius *= 0.86f;
         vision_stamp(g, player, u->pos, radius);
     }
     for (int r = 0; r < ROWS; r++)
@@ -261,11 +291,16 @@ static void update_stats(Game *g) {
         if (g->cities[i].owner >= 0) g->cities_owned[g->cities[i].owner]++;
     }
     for (int i = 0; i < MAX_UNITS; i++) {
-        if (g->units[i].alive) g->units_owned[g->units[i].owner]++;
+        if (g->units[i].alive) {
+            int o = g->units[i].owner;
+            g->units_owned[o]++;
+            if (g->units_owned[o] > g->peak[o]) g->peak[o] = g->units_owned[o];
+        }
     }
 }
 
 void game_update(Game *g, float dt) {
+    if (g->notice_t > 0.0f) g->notice_t -= dt;
     if (g->winner >= 0) {
         g->end_time += dt;
         return;
@@ -283,6 +318,7 @@ void game_update(Game *g, float dt) {
         if (g->units_owned[p] == 0 && g->cities_owned[p] == 0) {
             g->winner = 1 - p;
             g->end_time = 0.0f;
+            g->sfx |= (uint16_t)SFX_WIN;
             break;
         }
     }
@@ -436,6 +472,7 @@ void game_order_selected(Game *g, const Vec2 *pts, int n) {
         float a = (float)k * 2.39996f;
         float r = 9.0f + (float)(k % 4) * 7.0f;
         order_unit(g, &g->units[i], base, bn, v2(cosf(a) * r, sinf(a) * r));
+        g->units[i].order = ORD_MOVE;
         k++;
     }
 }
@@ -446,4 +483,143 @@ void game_set_city_rally(Game *g, Vec2 world) {
     if (c->owner != P_BLUE) return;
     c->rally = world;
     c->has_rally = 1;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Attack-move / hold / stop                                           */
+/* ------------------------------------------------------------------ */
+
+static void order_selected_to(Game *g, Vec2 target, int order) {
+    int k = 0;
+    for (int i = 0; i < MAX_UNITS; i++) {
+        Unit *u = &g->units[i];
+        if (!g->selected[i] || !u->alive) continue;
+        float a = (float)k * 2.39996f;
+        float r = 9.0f + (float)(k % 4) * 7.0f;
+        Vec2 base[1] = { target };
+        order_unit(g, u, base, 1, v2(cosf(a) * r, sinf(a) * r));
+        u->order = (uint8_t)order;
+        k++;
+    }
+}
+
+void game_order_attack_move(Game *g, Vec2 target) {
+    order_selected_to(g, target, ORD_ATTACK_MOVE);
+}
+
+void game_order_hold(Game *g) {
+    for (int i = 0; i < MAX_UNITS; i++) {
+        if (!g->selected[i] || !g->units[i].alive) continue;
+        g->units[i].plen = g->units[i].pi = 0;
+        g->units[i].order = ORD_HOLD;
+    }
+}
+
+void game_order_stop(Game *g) {
+    for (int i = 0; i < MAX_UNITS; i++) {
+        if (!g->selected[i] || !g->units[i].alive) continue;
+        g->units[i].plen = g->units[i].pi = 0;
+        g->units[i].order = ORD_MOVE;
+    }
+}
+
+void game_fortify_city(Game *g) {
+    if (g->sel_city < 0) return;
+    City *c = &g->cities[g->sel_city];
+    if (c->owner != P_BLUE || c->fortified || c->fort_t > 0.0f) return;
+    c->fort_t = 10.0f;
+    game_notice(g, "FORTIFYING CITY - 10s");
+}
+
+void game_set_city_production(Game *g, int type) {
+    if (g->sel_city < 0 || type < 0 || type >= UT_COUNT) return;
+    City *c = &g->cities[g->sel_city];
+    if (c->owner != P_BLUE) return;
+    c->prod_type = (uint8_t)type;
+    char buf[48];
+    snprintf(buf, sizeof(buf), "CITY PRODUCING %s", UNIT_TYPE[type].name);
+    game_notice(g, buf);
+}
+
+/* ------------------------------------------------------------------ */
+/* Save / load                                                         */
+/* ------------------------------------------------------------------ */
+
+#define SAVE_MAGIC   0x574F4443u   /* WODC */
+#define SAVE_VERSION 5u
+
+void game_notice(Game *g, const char *text) {
+    snprintf(g->notice, sizeof(g->notice), "%s", text);
+    g->notice_t = 2.5f;
+}
+
+int game_save(const Game *g, const char *path) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    uint32_t magic = SAVE_MAGIC, version = SAVE_VERSION, size = (uint32_t)sizeof(Game);
+    int ok = fwrite(&magic, 4, 1, f) == 1 &&
+             fwrite(&version, 4, 1, f) == 1 &&
+             fwrite(&size, 4, 1, f) == 1 &&
+             fwrite(g, sizeof(Game), 1, f) == 1;
+    if (fclose(f) != 0) ok = 0;
+    return ok;
+}
+
+static int valid_saved_game(const Game *g) {
+    if (g->ncity < 1 || g->ncity > MAX_CITIES) return 0;
+    if (g->difficulty[0] < 0 || g->difficulty[0] >= DIFF_COUNT) return 0;
+    if (g->difficulty[1] < 0 || g->difficulty[1] >= DIFF_COUNT) return 0;
+    if (g->winner < -1 || g->winner > 1) return 0;
+    if (!isfinite(g->time) || g->time < 0.0f) return 0;
+    for (int i = 0; i < g->ncity; i++) {
+        const City *c = &g->cities[i];
+        if (c->owner < -1 || c->owner > 1) return 0;
+        if (c->prod_type >= UT_COUNT) return 0;
+        if (c->fortified > 1) return 0;
+        if (!isfinite(c->fort_t) || c->fort_t < 0.0f) return 0;
+        if (!isfinite(c->pos.x) || !isfinite(c->pos.y)) return 0;
+    }
+    for (int i = 0; i < MAX_UNITS; i++) {
+        const Unit *u = &g->units[i];
+        if (!u->alive) continue;
+        if (u->owner < 0 || u->owner > 1) return 0;
+        if (u->type >= UT_COUNT || u->order >= ORD_COUNT) return 0;
+        if (!isfinite(u->pos.x) || !isfinite(u->pos.y) || !isfinite(u->hp)) return 0;
+    }
+    return 1;
+}
+
+int game_load(Game *g, const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    uint32_t magic = 0, version = 0, size = 0;
+    int ok = fread(&magic, 4, 1, f) == 1 &&
+             fread(&version, 4, 1, f) == 1 &&
+             fread(&size, 4, 1, f) == 1;
+    if (!ok || magic != SAVE_MAGIC || version != SAVE_VERSION ||
+        size != (uint32_t)sizeof(Game)) {
+        fclose(f);
+        return 0;
+    }
+    Game tmp;
+    ok = fread(&tmp, sizeof(Game), 1, f) == 1;
+    fclose(f);
+    if (!ok || !valid_saved_game(&tmp)) return 0;
+    *g = tmp;
+    g->menu = 0;
+    g->save_available = 1;
+    for (int i = 0; i < MAX_UNITS; i++) g->selected[i] = 0;
+    g->nsel = 0;
+    g->sel_city = -1;
+    g->sfx = 0;
+    game_notice(g, "MATCH LOADED");
+    return 1;
+}
+
+int game_save_exists(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    fclose(f);
+    return 1;
 }

@@ -12,6 +12,7 @@ typedef enum {
     PK_SPACE, PK_ESC, PK_R, PK_Q, PK_Z,
     PK_A, PK_D, PK_W, PK_S,
     PK_1, PK_2, PK_3,
+    PK_F5, PK_F9, PK_M, PK_G, PK_H, PK_X, PK_F,
     PK_LEFT, PK_RIGHT, PK_UP, PK_DOWN,
     PK_SHIFT,
     PK_COUNT
@@ -36,6 +37,12 @@ typedef struct {
     int wheel;    /* +1 = up, -1 = down, one notch per unit */
 } PlatEvent;
 
+/* Short UI/game sounds; backends may ignore them. */
+enum {
+    PSND_SELECT = 0, PSND_ORDER, PSND_CAPTURE, PSND_DEATH, PSND_WIN, PSND_UI,
+    PSND_COUNT
+};
+
 typedef struct Platform Platform;
 
 Platform *plat_open(const char *title, int w, int h);
@@ -55,5 +62,8 @@ double    plat_time(void);
 
 /* Sleep for the given number of seconds (frame pacing). */
 void      plat_sleep(double seconds);
+
+/* Best-effort system sound, asynchronous where possible. */
+void      plat_sound(int kind);
 
 #endif /* WOD_PLATFORM_H */

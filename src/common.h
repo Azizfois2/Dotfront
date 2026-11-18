@@ -21,7 +21,7 @@
 #define CITY_R           15.0f
 #define CITY_CAPTURE_R   36.0f
 #define ATTACK_RANGE     30.0f
-#define ALLY_GAP         14.0f
+#define ALLY_GAP         10.0f
 #define ENEMY_GAP        20.0f
 #define MAX_HP           100.0f
 #define UNIT_SPEED       140.0f  /* px per second on plains */
@@ -36,8 +36,33 @@
 enum { T_WATER, T_PLAINS, T_FOREST, T_HILL, T_MOUNTAIN, T_COUNT };
 enum { P_BLUE = 0, P_RED = 1 };
 
-/* AI profiles selectable with --difficulty or the 1/2/3 keys. */
+/* AI profiles selectable with --difficulty or 1/2/3 in the menu. */
 enum { DIFF_EASY = 0, DIFF_NORMAL = 1, DIFF_HARD = 2, DIFF_COUNT };
+
+/* Unit roles. */
+enum { UT_SCOUT = 0, UT_SOLDIER = 1, UT_HEAVY = 2, UT_COUNT };
+
+/* Movement orders. */
+enum { ORD_MOVE = 0, ORD_ATTACK_MOVE = 1, ORD_HOLD = 2, ORD_COUNT };
+
+typedef struct {
+    float hp;
+    float speed;      /* multiplier on UNIT_SPEED */
+    float dps;
+    float range;
+    float vision;     /* base radius, terrain modifies it */
+    float radius;     /* drawn/separation size */
+    float build_time; /* multiplier on city production interval */
+    const char *name;
+} UnitType;
+
+extern const UnitType UNIT_TYPE[UT_COUNT];
+
+/* One-frame sound events raised by game logic and consumed by main. */
+enum {
+    SFX_SELECT = 1 << 0, SFX_ORDER = 1 << 1, SFX_CAPTURE = 1 << 2,
+    SFX_DEATH = 1 << 3, SFX_WIN = 1 << 4, SFX_UI = 1 << 5, SFX_COUNT = 6
+};
 
 typedef struct { float x, y; } Vec2;
 
@@ -54,11 +79,15 @@ typedef struct { float x, y; } Vec2;
 typedef struct {
     int      owner;               /* -1 neutral, 0 blue, 1 red */
     Vec2     pos;
-    float    hp;
+    float    hp, max_hp;
+    uint8_t  type;                /* UT_* */
+    uint8_t  order;               /* ORD_* */
     Vec2     path[MAX_PATH];
     int      plen, pi;
     uint8_t  alive;
     float    flash;               /* hit flash timer, seconds */
+    float    stall_t;             /* stalled-path watchdog */
+    Vec2     last_pos;
 } Unit;
 
 typedef struct {
@@ -69,6 +98,9 @@ typedef struct {
     float    spawn_t;
     Vec2     rally;
     int      has_rally;
+    uint8_t  prod_type;           /* UT_* */
+    uint8_t  fortified;
+    float    fort_t;              /* fortification build timer */
 } City;
 
 /* ---- small vector helpers ------------------------------------------ */

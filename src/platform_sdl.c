@@ -28,6 +28,13 @@ static PlatKey map_key(SDL_Keycode k) {
     case SDLK_1:        return PK_1;
     case SDLK_2:        return PK_2;
     case SDLK_3:        return PK_3;
+    case SDLK_F5:       return PK_F5;
+    case SDLK_f:        return PK_F;
+    case SDLK_F9:       return PK_F9;
+    case SDLK_m:        return PK_M;
+    case SDLK_g:        return PK_G;
+    case SDLK_h:        return PK_H;
+    case SDLK_x:        return PK_X;
     case SDLK_LEFT:     return PK_LEFT;
     case SDLK_RIGHT:    return PK_RIGHT;
     case SDLK_UP:       return PK_UP;
@@ -141,6 +148,10 @@ int plat_poll(Platform *p, PlatEvent *ev) {
         }
     }
     return 0;
+}
+
+void plat_sound(int kind) {
+    (void)kind;   /* audio is not initialised in the SDL2 build */
 }
 
 double plat_time(void) {
