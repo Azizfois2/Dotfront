@@ -6,6 +6,8 @@
 [![Release: v1.2.0](https://img.shields.io/badge/release-v1.2.0-2ea44f)](https://github.com/Azizfois2/dotfront/releases/latest)
 [![build](https://github.com/Azizfois2/dotfront/actions/workflows/build.yml/badge.svg)](https://github.com/Azizfois2/dotfront/actions/workflows/build.yml)
 
+![Dotfront — C edition: the pixel-art wordmark beside the game's blue and red dot icon](assets/banner.png)
+
 An unofficial fan-made C RTS inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-)
 and [warofdots.net](https://warofdots.net/). Dotfront is not affiliated with or endorsed by the
 original project or its rights holders; “War of Dots” remains the property of its owner.
