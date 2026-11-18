@@ -1,0 +1,126 @@
+#include "render.h"
+#include "font.h"
+#include <stdio.h>
+#include <string.h>
+
+static void fmt_time(char *buf, size_t n, float t) {
+    int secs = (int)t;
+    snprintf(buf, n, "%d:%02d", secs / 60, secs % 60);
+}
+
+static void shadow_text(FB *fb, int cx, int y, const char *s, int scale, uint32_t color) {
+    gfx_text_center(fb, cx + 2, y + 2, s, scale, 0x99000000);
+    gfx_text_center(fb, cx, y, s, scale, color);
+}
+
+/* ------------------------------------------------------------------ */
+
+static void draw_minimap(FB *fb, const Game *g, const Renderer *r, const View *v) {
+    int mx = fb->w - r->mw - 14;
+    int my = fb->h - r->mh - 34;
+    gfx_fill(fb, mx - 4, my - 4, r->mw + 8, r->mh + 8, 0xCC0A0F15);
+    for (int y = 0; y < r->mh; y++)
+        for (int x = 0; x < r->mw; x++)
+            gfx_px(fb, mx + x, my + y, r->mini[y * r->mw + x]);
+
+    for (int i = 0; i < g->ncity; i++) {
+        const City *c = &g->cities[i];
+        int x = mx + (int)(c->pos.x / WORLD_W * (float)r->mw);
+        int y = my + (int)(c->pos.y / WORLD_H * (float)r->mh);
+        gfx_disc(fb, (float)x, (float)y, 2.6f, 0xFF15151A);
+        gfx_disc(fb, (float)x, (float)y, 1.9f, c->owner >= 0 ? owner_color(c->owner) : C_NEUTRAL);
+    }
+    for (int i = 0; i < MAX_UNITS; i++) {
+        const Unit *u = &g->units[i];
+        if (!u->alive) continue;
+        int x = mx + (int)(u->pos.x / WORLD_W * (float)r->mw);
+        int y = my + (int)(u->pos.y / WORLD_H * (float)r->mh);
+        gfx_px(fb, x, y, owner_color(u->owner));
+        gfx_px(fb, x + 1, y, owner_color(u->owner));
+        gfx_px(fb, x, y + 1, owner_color(u->owner));
+        gfx_px(fb, x + 1, y + 1, owner_color(u->owner));
+    }
+
+    float cw = (float)v->w / v->zoom / WORLD_W * (float)r->mw;
+    float ch = (float)v->h / v->zoom / WORLD_H * (float)r->mh;
+    float cx = v->cam.x / WORLD_W * (float)r->mw;
+    float cy = v->cam.y / WORLD_H * (float)r->mh;
+    gfx_rect_a(fb, (float)mx + cx, (float)my + cy,
+               fminf(cw, (float)r->mw), fminf(ch, (float)r->mh), C_WHITE, 210);
+    gfx_rect(fb, (float)mx - 4, (float)my - 4,
+             (float)r->mw + 8, (float)r->mh + 8, 0xFF4A5568);
+}
+
+static void draw_topbar(FB *fb, const Game *g) {
+    char buf[96];
+    gfx_fill_a(fb, 0, 0, fb->w, 46, 0xFF080B10, 205);
+    gfx_fill_a(fb, 0, 46, fb->w, 2, 0xFF2A3442, 255);
+
+    gfx_disc(fb, 22.0f, 23.0f, 7.0f, C_BLUE);
+    snprintf(buf, sizeof(buf), "BLUE  CITIES %d  UNITS %d",
+             g->cities_owned[P_BLUE], g->units_owned[P_BLUE]);
+    gfx_text(fb, 36, 16, buf, 2, C_BLUE);
+
+    char t[16];
+    fmt_time(t, sizeof(t), g->time);
+    gfx_text_center(fb, fb->w / 2, 16, t, 2, C_WHITE);
+
+    snprintf(buf, sizeof(buf), "CITIES %d  UNITS %d  RED",
+             g->cities_owned[P_RED], g->units_owned[P_RED]);
+    gfx_text_right(fb, fb->w - 36, 16, buf, 2, C_RED);
+    gfx_disc(fb, (float)fb->w - 22.0f, 23.0f, 7.0f, C_RED);
+}
+
+static void draw_selection_info(FB *fb, const Game *g) {
+    char buf[96];
+    int y = fb->h - 60;
+    if (g->nsel > 0) {
+        snprintf(buf, sizeof(buf), "%d UNITS SELECTED  -  RIGHT DRAG TO SET A PATH", g->nsel);
+    } else if (g->sel_city >= 0 && g->cities[g->sel_city].owner == P_BLUE) {
+        snprintf(buf, sizeof(buf), "CITY SELECTED  -  RIGHT DRAG TO SET A RALLY POINT");
+    } else if (g->sel_city >= 0) {
+        snprintf(buf, sizeof(buf), "ENEMY / NEUTRAL CITY  -  MOVE UNITS INSIDE TO CAPTURE");
+    } else {
+        snprintf(buf, sizeof(buf), "LEFT DRAG TO BOX-SELECT  -  RIGHT DRAG TO MOVE");
+    }
+    gfx_fill_a(fb, 10, y - 4, font_text_width(buf, 2) + 16, 24, 0xFF080B10, 165);
+    gfx_text(fb, 18, y, buf, 2, 0xFFCFE3F5);
+}
+
+static void draw_help(FB *fb, const Game *g) {
+    (void)g;
+    int h = 24;
+    int y = fb->h - h;
+    gfx_fill_a(fb, 0, y, fb->w, h, 0xFF080B10, 200);
+    const char *help =
+        "LMB SELECT / BOX   RMB DRAW PATH   Z ALL   SPACE PAUSE   R RESTART   "
+        "WASD OR MMB PAN   WHEEL ZOOM";
+    gfx_text(fb, 12, y + 8, help, 1, 0xFF8C9AAB);
+}
+
+void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
+    draw_topbar(fb, g);
+    draw_selection_info(fb, g);
+    draw_minimap(fb, g, r, v);
+    draw_help(fb, g);
+
+    if (g->winner >= 0) {
+        char line[64];
+        gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 165);
+        int cy = fb->h / 2 - 60;
+        const char *who = g->winner == P_BLUE ? "BLUE WINS" : "RED WINS";
+        shadow_text(fb, fb->w / 2, cy, who, 7, owner_color(g->winner));
+        char tm[32];
+        fmt_time(tm, sizeof(tm), g->time);
+        snprintf(line, sizeof(line), "FINAL TIME  %s", tm);
+        shadow_text(fb, fb->w / 2, cy + 76, line, 3, C_WHITE);
+        shadow_text(fb, fb->w / 2, cy + 122, "PRESS R TO PLAY AGAIN", 3, 0xFFBFD4E6);
+    } else if (g->paused) {
+        gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 120);
+        int starting = g->time < 0.01f;
+        shadow_text(fb, fb->w / 2, fb->h / 2 - 40,
+                    starting ? "WAR OF DOTS" : "PAUSED", 7, C_WHITE);
+        shadow_text(fb, fb->w / 2, fb->h / 2 + 34,
+                    starting ? "SPACE TO START" : "SPACE TO RESUME", 3, 0xFFBFD4E6);
+    }
+}
