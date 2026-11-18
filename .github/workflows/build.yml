@@ -17,17 +17,20 @@ jobs:
         run: make
       - name: Headless simulation smoke test
         run: ./wod_c --headless 5 --seed 3 || test $? -eq 2
-      - name: Launch the Cocoa window briefly
+      - name: Launch under Xvfb
         run: |
-          ./wod_c --seed 3 &
-          pid=$!
-          sleep 3
-          if ! kill -0 "$pid" 2>/dev/null; then
-            echo "windowed process exited unexpectedly"
-            wait "$pid"
-            exit 1
-          fi
-          kill "$pid"
+          sudo apt-get install -y xvfb
+          xvfb-run -a bash -c '
+            ./wod_c --seed 3 &
+            pid=$!
+            sleep 3
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "windowed process exited unexpectedly"
+              wait "$pid"
+              exit 1
+            fi
+            kill "$pid"
+          '
 
   linux-sdl:
     runs-on: ubuntu-latest
@@ -61,3 +64,14 @@ jobs:
         run: make
       - name: Headless simulation smoke test
         run: ./wod_c --headless 5 --seed 3 || test $? -eq 2
+      - name: Launch the Cocoa window briefly
+        run: |
+          ./wod_c --seed 3 &
+          pid=$!
+          sleep 3
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "windowed process exited unexpectedly"
+            wait "$pid"
+            exit 1
+          fi
+          kill "$pid" 
