@@ -313,32 +313,30 @@ void game_update_vision(Game *g) {
 /* City influence makes the territory map. Overlapping cities are resolved by
  * distance; neutral cells get -1. Rebuilt a few times per second. */
 void game_update_territory(Game *g) {
-    static uint16_t score[MAX_ROWS][MAX_COLS];
-    memset(score, 0, sizeof(score));
-    for (int r = 0; r < g->w.rows; r++)
-        for (int c = 0; c < g->w.cols; c++) g->terr_owner[r][c] = -1;
-
-    int rad_cells = (int)(TERRITORY_RADIUS / CELL) + 1;
-    for (int i = 0; i < g->ncity; i++) {
-        const City *city = &g->cities[i];
-        if (city->owner < 0) continue;
-        int cr = (int)(city->pos.y / CELL), cc = (int)(city->pos.x / CELL);
-        for (int dr = -rad_cells; dr <= rad_cells; dr++) {
-            int r = cr + dr;
-            if (r < 0 || r >= g->w.rows) continue;
-            for (int dc = -rad_cells; dc <= rad_cells; dc++) {
-                int c = cc + dc;
-                if (c < 0 || c >= g->w.cols) continue;
-                float dx = ((float)c + 0.5f) * CELL - city->pos.x;
-                float dy = ((float)r + 0.5f) * CELL - city->pos.y;
-                float d = sqrtf(dx * dx + dy * dy);
-                if (d >= TERRITORY_RADIUS) continue;
-                uint16_t s = (uint16_t)((TERRITORY_RADIUS - d) * 4.0f);
-                if (s > score[r][c]) {
-                    score[r][c] = s;
-                    g->terr_owner[r][c] = (int8_t)city->owner;
+    /* Voronoi-style territory: the nearest owned city claims each cell, with
+     * a terrain-derived wobble so borders bend around hills and forests
+     * instead of forming perfect circles. */
+    float claim_r = TERRITORY_RADIUS * 1.62f;
+    for (int r = 0; r < g->w.rows; r++) {
+        for (int c = 0; c < g->w.cols; c++) {
+            float x = ((float)c + 0.5f) * CELL;
+            float y = ((float)r + 0.5f) * CELL;
+            float wobble = (world_elev_at(&g->w, x, y) - 0.5f) * 58.0f
+                         + (world_forest_at(&g->w, x, y) - 0.5f) * 26.0f;
+            int best = -1;
+            float best_d = claim_r;
+            for (int i = 0; i < g->ncity; i++) {
+                const City *city = &g->cities[i];
+                if (city->owner < 0) continue;
+                float dx = x - city->pos.x;
+                float dy = y - city->pos.y;
+                float d = sqrtf(dx * dx + dy * dy) + wobble;
+                if (d < best_d) {
+                    best_d = d;
+                    best = city->owner;
                 }
             }
+            g->terr_owner[r][c] = (int8_t)best;
         }
     }
     g->terr_t = 0.4f;

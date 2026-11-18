@@ -74,57 +74,146 @@ const char *world_shape_name(int shape) {
     case SHAPE_TWIN:     return "TWIN ISLES";
     case SHAPE_ATOLL:    return "ATOLL";
     case SHAPE_FJORDS:   return "FJORDS";
-    case SHAPE_SCATTER:  return "SCATTER";
+    case SHAPE_SCATTER:  return "ISLAND CHAIN";
+    case SHAPE_ISTHMUS:  return "ISTHMUS";
+    case SHAPE_CRESCENT: return "CRESCENT";
+    case SHAPE_RIFT:     return "RIFT";
     default:             return "CONTINENT";
     }
 }
 
-/* A domain-warped, non-radial landmass mask. Each shape gives a different
- * large-scale silhouette (one continent, two lobes, a ring, fjord-cut land,
- * or many small islands) instead of every map being the same central blob. */
+/* Signed-ish lobe: 1 at centre, 0 at its rim. */
+static float lobe(float x, float y, float cx, float cy, float rx, float ry) {
+    float dx = (x - cx) / rx, dy = (y - cy) / ry;
+    return 1.0f - sqrtf(dx * dx + dy * dy);
+}
+
+static int shape_for_style(uint32_t seed, int style) {
+    static const int set_island[4]    = { SHAPE_CONTINENT, SHAPE_TWIN,
+                                          SHAPE_ISTHMUS, SHAPE_CRESCENT };
+    static const int set_arch[4]      = { SHAPE_SCATTER, SHAPE_ATOLL,
+                                          SHAPE_FJORDS, SHAPE_CRESCENT };
+    static const int set_lakes[4]     = { SHAPE_CONTINENT, SHAPE_RIFT,
+                                          SHAPE_FJORDS, SHAPE_ATOLL };
+    static const int set_high[4]      = { SHAPE_CONTINENT, SHAPE_RIFT,
+                                          SHAPE_ISTHMUS, SHAPE_TWIN };
+    uint32_t h = seed ^ (seed >> 7) ^ (seed * 0x9E3779B9u >> 3);
+    int i = (int)(h % 4u);
+    if (style == MAP_ARCHIPELAGO) return set_arch[i];
+    if (style == MAP_LAKES) return set_lakes[i];
+    if (style == MAP_HIGHLANDS) return set_high[i];
+    return set_island[i];
+}
+
+/* Distinct large-scale topologies rather than one warped central ellipse.
+ * The shape is rotated by a seed-derived angle, so repeated archetypes still
+ * enter the map from different directions. */
 static float shape_bias(const World *w, float x, float y, float strength,
                         int shape, uint32_t seed) {
     float nx = (x / (float)w->width - 0.5f) * 2.0f;
     float ny = (y / (float)w->height - 0.5f) * 2.0f;
 
-    /* warp the coordinate space itself so coasts are not elliptical */
+    float ang = (float)((seed >> 3) % 360u) * 0.01745329252f;
+    float ca = cosf(ang), sa = sinf(ang);
+    float rx = nx * ca - ny * sa;
+    float ry = nx * sa + ny * ca;
+    nx = rx;
+    ny = ry;
+
+    /* gentle domain warp keeps the topology readable but coasts organic */
     float wx = fbm(nx * 2.3f + 7.1f, ny * 2.3f - 3.7f, seed ^ 0x51A3u, 2);
     float wy = fbm(nx * 2.4f - 4.2f, ny * 2.1f + 8.5f, seed ^ 0x9C11u, 2);
-    nx += (wx - 0.5f) * 0.26f;
-    ny += (wy - 0.5f) * 0.26f;
+    nx += (wx - 0.5f) * 0.18f;
+    ny += (wy - 0.5f) * 0.18f;
 
+    uint32_t rs = seed ^ 0xC0FFEEu;
+    float phase = rnd_f(&rs) * 6.2831853f;
     float b = 0.0f;
+
     switch (shape) {
     case SHAPE_TWIN: {
-        float a1 = 0.72f - sqrtf((nx + 0.42f) * (nx + 0.42f) * 1.18f +
-                                 ny * ny * 1.50f) * 1.05f;
-        float a2 = 0.72f - sqrtf((nx - 0.42f) * (nx - 0.42f) * 1.18f +
-                                 (ny - 0.04f) * (ny - 0.04f) * 1.50f) * 1.05f;
-        b = fmaxf(a1, a2);
+        float a1 = lobe(nx, ny, -0.44f, -0.05f, 0.54f, 0.52f);
+        float a2 = lobe(nx, ny, 0.45f, 0.06f, 0.52f, 0.50f);
+        b = fmaxf(a1, a2) * 0.78f;
+        if (seed & 1u)   /* occasional narrow land bridge */
+            b = fmaxf(b, lobe(nx, ny, 0.0f, 0.0f, 0.30f, 0.11f) * 0.62f);
         break;
     }
     case SHAPE_ATOLL: {
-        float r = sqrtf(nx * nx * 0.92f + ny * ny * 1.18f);
-        b = 0.50f - fabsf(r - 0.52f) * 1.65f;
+        float r = sqrtf(nx * nx * 0.94f + ny * ny * 1.12f);
+        b = 0.60f - fabsf(r - 0.54f) * 2.05f;
+        /* break the ring with two or three navigable channels */
+        float a = atan2f(ny, nx);
+        for (int k = 0; k < 3; k++) {
+            float g = a - (phase + (float)k * 2.12f);
+            while (g > 3.14159265f) g -= 6.2831853f;
+            while (g < -3.14159265f) g += 6.2831853f;
+            b -= expf(-g * g * 26.0f) * 0.34f;
+        }
         break;
     }
     case SHAPE_FJORDS: {
         float r = sqrtf(nx * nx * 0.86f + ny * ny * 1.10f);
-        b = 0.86f - r * 1.00f;
-        /* long, stretched ridges cut narrow water inlets into the coast */
+        b = 0.90f - r * 1.03f;
+        float a = atan2f(ny, nx);
+        float inl = fabsf(sinf(a * 3.0f + phase));
+        inl = powf(inl, 18.0f);
+        b -= inl * smoothf(clampf((r - 0.24f) / 0.52f, 0.0f, 1.0f)) * 0.58f;
         float ridge = fbm(nx * 3.6f + 21.0f, ny * 1.15f - 9.0f,
                           seed ^ 0xB17Bu, 3);
-        float channel = smoothf(clampf((ridge - 0.52f) / 0.20f, 0.0f, 1.0f));
-        b -= channel * 0.42f;
+        b -= smoothf(clampf((ridge - 0.56f) / 0.18f, 0.0f, 1.0f)) * 0.22f;
         break;
     }
-    case SHAPE_SCATTER:
-        b = 0.18f + (fbm(nx * 2.0f + 13.0f, ny * 2.0f + 4.0f,
-                         seed ^ 0x77C3u, 3) - 0.5f) * 0.62f;
+    case SHAPE_SCATTER: {
+        /* a curved island chain plus a few outliers, not uniform noise specks */
+        for (int k = 0; k < 7; k++) {
+            float t = (float)k / 6.0f;
+            float cx = -0.72f + t * 1.44f;
+            float cy = sinf(t * 3.1f + phase) * 0.34f;
+            cx += (rnd_f(&rs) - 0.5f) * 0.13f;
+            cy += (rnd_f(&rs) - 0.5f) * 0.13f;
+            float rr = 0.20f + rnd_f(&rs) * 0.10f;
+            b = fmaxf(b, lobe(nx, ny, cx, cy, rr, rr * 0.78f));
+        }
+        for (int k = 0; k < 2; k++) {
+            float cx = (rnd_f(&rs) * 1.5f - 0.75f);
+            float cy = (rnd_f(&rs) * 1.3f - 0.65f);
+            float rr = 0.16f + rnd_f(&rs) * 0.09f;
+            b = fmaxf(b, lobe(nx, ny, cx, cy, rr, rr));
+        }
+        b *= 0.76f;
         break;
+    }
+    case SHAPE_ISTHMUS: {
+        float a1 = lobe(nx, ny, -0.48f, 0.0f, 0.50f, 0.50f);
+        float a2 = lobe(nx, ny, 0.49f, 0.05f, 0.50f, 0.48f);
+        float neck = lobe(nx, ny, 0.0f, 0.02f, 0.42f, 0.15f) * 0.74f;
+        b = fmaxf(fmaxf(a1, a2), neck) * 0.82f;
+        break;
+    }
+    case SHAPE_CRESCENT: {
+        float r = sqrtf(nx * nx * 0.92f + ny * ny * 1.08f);
+        b = 0.64f - fabsf(r - 0.56f) * 2.35f;
+        float cut = smoothf(clampf((nx - 0.02f) / 0.62f, 0.0f, 1.0f));
+        b -= cut * 0.80f;
+        break;
+    }
+    case SHAPE_RIFT: {
+        float r = sqrtf(nx * nx * 0.80f + ny * ny * 1.10f);
+        b = 0.88f - r * 1.02f;
+        /* a winding sea rift splits the continent into two halves */
+        float wob = (fbm(nx * 1.8f - 4.0f, ny * 1.8f + 11.0f,
+                         seed ^ 0xD11Fu, 2) - 0.5f) * 0.22f;
+        float line = ry * 0.82f - rx * 0.57f + wob;
+        b -= expf(-line * line / 0.0022f) * 0.78f;
+        break;
+    }
     default: {
-        float r = sqrtf(nx * nx * 0.78f + ny * ny * 1.16f);
-        b = 0.84f - r * 1.02f;
+        float b1 = lobe(nx, ny, 0.0f, 0.02f, 0.74f, 0.64f);
+        float b2 = lobe(nx, ny, -0.34f, -0.14f, 0.46f, 0.40f);
+        float b3 = lobe(nx, ny, 0.36f, 0.12f, 0.44f, 0.38f);
+        float b4 = lobe(nx, ny, 0.02f, 0.40f, 0.38f, 0.28f);
+        b = fmaxf(fmaxf(b1, b2), fmaxf(b3, b4)) * 0.80f;
         break;
     }
     }
@@ -248,12 +337,7 @@ void world_generate(World *w, uint32_t seed, int players,
     w->height = rows * CELL;
 
     uint32_t s = seed ^ 0xA5A5F00Du ^ (uint32_t)w->style * 0x9E3779B9u;
-    w->shape = (int)((seed ^ (seed >> 7) ^ (seed * 0x9E3779B9u) >> 3) % (uint32_t)SHAPE_COUNT);
-    /* keep the silhouette consistent with the style name */
-    if (w->style == MAP_ARCHIPELAGO && w->shape == SHAPE_CONTINENT)
-        w->shape = SHAPE_SCATTER;
-    if (w->style == MAP_LAKES && w->shape == SHAPE_ATOLL)
-        w->shape = SHAPE_FJORDS;
+    w->shape = shape_for_style(seed, w->style);
     MapTuning tune = tuning_for(w->style);
 
     /* elevation at grid corners */

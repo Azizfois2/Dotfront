@@ -233,7 +233,9 @@ void ai_update(Game *g, int p, float dt) {
     }
     int dominant = g->cities_owned[p] * 2 >= g->ncity;
     int at_cap = g->units_owned[p] >= game_unit_cap(g) - 2;
-    if (dominant || at_cap || (enemy_cities > 0 && enemy_cities <= 2)) wave = idle;
+    int late = g->time > 150.0f;
+    if (dominant || at_cap || late ||
+        (enemy_cities > 0 && enemy_cities <= 2)) wave = idle;
     g->ai_wave[p] = wave;
     if (idle < wave) return;
 

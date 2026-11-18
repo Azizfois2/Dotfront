@@ -97,7 +97,21 @@ void units_update(Game *g, float dt) {
         float heal = (d < SUPPLY_CLOSE) ? 5.0f
                    : (d < SUPPLY_FAR)   ? 1.5f
                                         : -1.5f;
-        int terr = game_territory_at(g, u->pos.x, u->pos.y);
+        /* Territory shading is broad, but supply only counts inside the
+         * tighter city influence radius. Otherwise every dot on the map
+         * would regenerate and wars would never resolve. */
+        int terr = -1;
+        float best = TERRITORY_RADIUS;
+        for (int ci = 0; ci < g->ncity; ci++) {
+            const City *cc = &g->cities[ci];
+            if (cc->owner < 0) continue;
+            float cdx = u->pos.x - cc->pos.x, cdy = u->pos.y - cc->pos.y;
+            float cd = sqrtf(cdx * cdx + cdy * cdy);
+            if (cd < best) {
+                best = cd;
+                terr = cc->owner;
+            }
+        }
         if (terr == u->owner) heal += 1.2f;
         else if (terr >= 0) heal -= 1.0f;
         float maxhp = u->max_hp > 0.0f ? u->max_hp : MAX_HP;

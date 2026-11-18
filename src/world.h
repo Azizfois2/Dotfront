@@ -8,7 +8,8 @@
 
 /* Large-scale landmass template, independent of the terrain style. */
 enum { SHAPE_CONTINENT = 0, SHAPE_TWIN, SHAPE_ATOLL, SHAPE_FJORDS,
-       SHAPE_SCATTER, SHAPE_COUNT };
+       SHAPE_SCATTER, SHAPE_ISTHMUS, SHAPE_CRESCENT, SHAPE_RIFT,
+       SHAPE_COUNT };
 
 typedef struct {
     int      cols, rows;       /* active grid */

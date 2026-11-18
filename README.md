@@ -17,7 +17,8 @@ platform SDK/headers.
 
 - 2-6 factions with distinct colours, and an opponent-count selector on the start menu
 - Procedurally generated maps in four styles (island, archipelago, lakes, highlands) and five
-  large-scale silhouettes (continent, twin isles, atoll, fjords, scattered isles), with warped
+  large-scale silhouettes (continent, twin isles, broken atoll, fjords, island chain,
+  isthmus, crescent, rift), with warped
   cliffs, soft shallow-water coastlines and wavy sea borders instead of one central square
   blob; the map grows
   with the player count (roughly five cities and 400k px² per faction, up to 2060×1160)
