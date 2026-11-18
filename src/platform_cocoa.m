@@ -175,15 +175,13 @@ static PlatKey key_from_event(NSEvent *e) {
     (void)rect;
     Platform *p = self.plat;
     if (!p || !p->image) return;
-    @autoreleasepool {
-        NSImage *img = [[NSImage alloc] initWithCGImage:p->image
-                                                   size:NSMakeSize(p->w, p->h)];
-        [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationNone];
-        [img drawInRect:NSMakeRect(0, 0, p->w, p->h)
-                fromRect:NSZeroRect
-               operation:NSCompositingOperationCopy
-                fraction:1.0];
-    }
+    /* The view is flipped, so the context is y-down; CGContextDrawImage
+       then maps image row 0 to the top of the view. */
+    CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
+    CGContextSaveGState(ctx);
+    CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
+    CGContextDrawImage(ctx, CGRectMake(0, 0, p->w, p->h), p->image);
+    CGContextRestoreGState(ctx);
 }
 
 - (void)windowWillClose:(NSNotification *)note {
