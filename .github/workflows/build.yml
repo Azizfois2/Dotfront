@@ -18,19 +18,19 @@ jobs:
       - name: Headless simulation smoke test
         run: |
           for p in 2 3 4 5 6; do
-            ./wod_c --headless 5 --seed 3 --players $p || test $? -eq 2
+            ./dotfront --headless 5 --seed 3 --players $p || test $? -eq 2
           done
       - name: AI resolves matches under fog
         run: |
           for s in 1 2 3 5; do
-            ./wod_c --headless 300 --seed $s --players 2 > /tmp/ai_$s.txt || true
+            ./dotfront --headless 300 --seed $s --players 2 > /tmp/ai_$s.txt || true
             grep -q "WINS" /tmp/ai_$s.txt || { cat /tmp/ai_$s.txt; exit 1; }
           done
       - name: Launch under Xvfb
         run: |
           sudo apt-get install -y xvfb
           xvfb-run -a bash -c '
-            ./wod_c --seed 3 &
+            ./dotfront --seed 3 &
             pid=$!
             sleep 3
             if ! kill -0 "$pid" 2>/dev/null; then
@@ -43,10 +43,10 @@ jobs:
       - name: LAN handshake under Xvfb
         run: |
           xvfb-run -a bash -c '
-            ./wod_c --host 47888 --players 3 --seed 3 > /tmp/lan_host.log 2>&1 &
+            ./dotfront --host 47888 --players 3 --seed 3 > /tmp/lan_host.log 2>&1 &
             hpid=$!
             sleep 1
-            ./wod_c --join 127.0.0.1:47888 > /tmp/lan_client.log 2>&1 &
+            ./dotfront --join 127.0.0.1:47888 > /tmp/lan_client.log 2>&1 &
             cpid=$!
             sleep 3
             kill -0 "$hpid" || { cat /tmp/lan_host.log; exit 1; }
@@ -65,7 +65,7 @@ jobs:
       - name: Build (SDL2)
         run: make sdl
       - name: Headless simulation smoke test
-        run: ./wod_c_sdl --headless 5 --seed 3 --players 6 || test $? -eq 2
+        run: ./dotfront_sdl --headless 5 --seed 3 --players 6 || test $? -eq 2
 
   windows:
     runs-on: ubuntu-latest
@@ -84,7 +84,7 @@ jobs:
         timeout-minutes: 5
         run: make windows
       - name: Check the executable
-        run: file wod_c.exe && test -s wod_c.exe
+        run: file dotfront.exe && test -s dotfront.exe
 
   macos:
     runs-on: macos-latest
@@ -95,15 +95,15 @@ jobs:
       - name: Build (native Cocoa)
         run: make
       - name: Build app bundle with icon
-        run: make app && test -s "War of Dots.app/Contents/Resources/icon.icns"
+        run: make app && test -s "Dotfront.app/Contents/Resources/icon.icns"
       - name: Headless simulation smoke test
         run: |
           for p in 2 3 4 5 6; do
-            ./wod_c --headless 5 --seed 3 --players $p || test $? -eq 2
+            ./dotfront --headless 5 --seed 3 --players $p || test $? -eq 2
           done
       - name: Launch the Cocoa window briefly
         run: |
-          ./wod_c --seed 3 &
+          ./dotfront --seed 3 &
           pid=$!
           sleep 3
           if ! kill -0 "$pid" 2>/dev/null; then
@@ -115,7 +115,7 @@ jobs:
       - name: Screenshot the Cocoa window (best effort)
         continue-on-error: true
         run: |
-          ./wod_c --seed 3 &
+          ./dotfront --seed 3 &
           pid=$!
           sleep 4
           WID=$(swift - <<'SWIFT'
@@ -125,7 +125,7 @@ jobs:
               for w in list {
                   let name = (w[kCGWindowName as String] as? String) ?? ""
                   let owner = (w[kCGWindowOwnerName as String] as? String) ?? ""
-                  if name.contains("WAR OF DOTS") || owner == "wod_c" {
+                  if name.contains("DOTFRONT") || owner == "dotfront" {
                       if let n = w[kCGWindowNumber as String] as? Int { print(n); break }
                   }
               }

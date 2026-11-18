@@ -4,19 +4,19 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>War of Dots</string>
+    <string>Dotfront</string>
     <key>CFBundleDisplayName</key>
-    <string>War of Dots</string>
+    <string>Dotfront</string>
     <key>CFBundleIdentifier</key>
-    <string>com.azizfois2.warofdots</string>
+    <string>com.azizfois2.dotfront</string>
     <key>CFBundleVersion</key>
-    <string>1.1.0</string>
+    <string>1.2.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.0</string>
+    <string>1.2.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
-    <string>wod_c</string>
+    <string>dotfront</string>
     <key>CFBundleIconFile</key>
     <string>icon.icns</string>
     <key>NSHighResolutionCapable</key>

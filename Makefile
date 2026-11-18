@@ -13,7 +13,7 @@ CORE    = src/main.c src/entry.c src/gfx.c src/font.c src/world.c src/game.c src
 SRC = $(CORE) src/platform_x11.c
 OBJ = $(SRC:.c=.o)
 DEP = $(OBJ:.o=.d)
-BIN = wod_c
+BIN = dotfront
 
 ifeq ($(UNAME_S),Darwin)
 all: macos
@@ -32,7 +32,7 @@ $(BIN): $(OBJ)
 WINRES = src/win_icon.o
 
 clean:
-	rm -rf $(OBJ) $(DEP) $(BIN) wod_c.exe wod_c_sdl src/platform_cocoa.o src/platform_cocoa.d $(WINRES) "War of Dots.app"
+	rm -rf $(OBJ) $(DEP) $(BIN) dotfront.exe dotfront_sdl src/platform_cocoa.o src/platform_cocoa.d $(WINRES) "Dotfront.app"
 
 run: $(BIN)
 	./$(BIN)
@@ -41,7 +41,7 @@ run: $(BIN)
 sdl:
 	@if [ -z "$(SDL_CFLAGS)" ]; then \
 	    echo "SDL2 not found: install libsdl2-dev"; exit 1; fi
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(CORE) src/platform_sdl.c -o wod_c_sdl \
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(CORE) src/platform_sdl.c -o dotfront_sdl \
 	    $(LDFLAGS) $(SDL_LIBS) -lm
 
 # Native macOS build: Cocoa window/view, no SDL or Homebrew dependency.
@@ -49,7 +49,7 @@ MACOS_ARCH ?=
 
 macos: CFLAGS += $(MACOS_ARCH)
 macos: $(CORE:.c=.o) src/platform_cocoa.o
-	$(CC) $(MACOS_ARCH) $(CORE:.c=.o) src/platform_cocoa.o -o wod_c -framework Cocoa -lm
+	$(CC) $(MACOS_ARCH) $(CORE:.c=.o) src/platform_cocoa.o -o dotfront -framework Cocoa -lm
 
 src/platform_cocoa.o: src/platform_cocoa.m
 	$(CC) $(MACOS_ARCH) -O2 -Wall -Wextra -Wno-deprecated-declarations -MMD -MP -c $< -o $@
@@ -62,22 +62,22 @@ android:
 
 # macOS application bundle with the Finder/Dock icon.
 app: macos
-	rm -rf "War of Dots.app"
-	mkdir -p "War of Dots.app/Contents/MacOS" "War of Dots.app/Contents/Resources"
-	cp wod_c "War of Dots.app/Contents/MacOS/wod_c"
-	cp assets/icon.icns "War of Dots.app/Contents/Resources/icon.icns"
-	cp packaging/macos/Info.plist "War of Dots.app/Contents/Info.plist"
+	rm -rf "Dotfront.app"
+	mkdir -p "Dotfront.app/Contents/MacOS" "Dotfront.app/Contents/Resources"
+	cp dotfront "Dotfront.app/Contents/MacOS/dotfront"
+	cp assets/icon.icns "Dotfront.app/Contents/Resources/icon.icns"
+	cp packaging/macos/Info.plist "Dotfront.app/Contents/Info.plist"
 
 # Optional fallback for macOS (and a general-purpose SDL2 build).
 macos-sdl:
 	@if [ -z "$(SDL_CFLAGS)" ]; then \
 	    echo "SDL2 not found: run 'brew install sdl2'"; exit 1; fi
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(CORE) src/platform_sdl.c -o wod_c_sdl \
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(CORE) src/platform_sdl.c -o dotfront_sdl \
 	    $(LDFLAGS) $(SDL_LIBS) -lm
 
 # Native Windows build (no SDL, no X11): Win32 GDI + DIB presentation.
 windows: $(WINRES)
-	$(MINGW) $(CFLAGS) $(CORE) src/platform_win32.c $(WINRES) -o wod_c.exe \
+	$(MINGW) $(CFLAGS) $(CORE) src/platform_win32.c $(WINRES) -o dotfront.exe \
 	    $(LDFLAGS) -lgdi32 -luser32 -lwinmm -lws2_32 -lm -mwindows
 
 $(WINRES): src/win_icon.rc assets/icon.ico

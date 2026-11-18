@@ -648,7 +648,7 @@ int wod_main(int argc, char **argv) {
                 return 2;
             }
         } else if (!strcmp(argv[i], "--version")) {
-            printf("War of Dots %s\n", WOD_VERSION);
+            printf("Dotfront %s\n", WOD_VERSION);
             return 0;
         } else if (!strcmp(argv[i], "--help")) {
             printf("usage: %s [--seed N] [--players 2-6] [--headless SECONDS] "
@@ -703,7 +703,7 @@ int wod_main(int argc, char **argv) {
     }
 
     char title[64];
-    snprintf(title, sizeof(title), "WAR OF DOTS - C%s%s",
+    snprintf(title, sizeof(title), "DOTFRONT - C%s%s",
              net_mode == 1 ? " [HOST]" : "", net_mode == 2 ? " [CLIENT]" : "");
     Platform *plat = plat_open(title, WIN_W, WIN_H);
     if (!plat) {
@@ -728,7 +728,7 @@ int wod_main(int argc, char **argv) {
         g.paused = 0;
         g.spectator = 1;
     }
-    printf("WAR OF DOTS (C) - seed %u, %d factions, %s / %s %dx%d, %d cities, AI %s%s%s\n",
+    printf("DOTFRONT (C) - seed %u, %d factions, %s / %s %dx%d, %d cities, AI %s%s%s\n",
            seed, g.players, world_style_name(g.w.style),
            world_shape_name(g.w.shape), g.w.width, g.w.height,
            g.ncity, diff_name(ai_diff), spectate ? ", spectating" : "",

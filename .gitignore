@@ -1,7 +1,7 @@
 *.o
-wod_c
-wod_c.exe
-wod_c_sdl
+dotfront
+dotfront.exe
+dotfront_sdl
 
 _macshot*.png
 _*.png

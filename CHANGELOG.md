@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.2.0 — Dotfront
+
+- Renamed the project from *War of Dots — C edition* to **Dotfront**, with a new Android
+  application ID (`com.azizfois2.dotfront`), macOS bundle identifier, desktop entry and release
+  asset names.
+- Added an explicit unofficial fan-project credit and disclaimer in the README.
+- Executables are now `dotfront`, `dotfront.exe` and `dotfront_sdl`; `--version` prints Dotfront.
+- Existing `v1.1.0` saves remain readable (`wod_save.bin` keeps its established name).
+- No gameplay changes in this release.
+
 ## v1.1.0
 
 - Android touch build (arm64 + armeabi-v7a) with tap, long-press move, two-finger pan,

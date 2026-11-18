@@ -248,7 +248,7 @@ static void draw_menu(FB *fb, const Game *g, const View *v) {
     gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 205);
     int cx = fb->w / 2;
     int y = fb->h / 2 - 200;
-    shadow_text(fb, cx, y, "WAR OF DOTS", 7, C_WHITE);
+    shadow_text(fb, cx, y, "DOTFRONT", 7, C_WHITE);
     char ver[48];
     snprintf(ver, sizeof(ver), "C EDITION  v%s", WOD_VERSION);
     shadow_text(fb, cx, y - 34, ver, 1, 0xFF71808F);
@@ -416,7 +416,7 @@ void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
         gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 120);
         int starting = g->time < 0.01f;
         shadow_text(fb, fb->w / 2, fb->h / 2 - 40,
-                    starting ? "WAR OF DOTS" : "PAUSED", 7, C_WHITE);
+                    starting ? "DOTFRONT" : "PAUSED", 7, C_WHITE);
         int hover = ui_hit_test(g, v, v->mouse_x, v->mouse_y);
         ui_button(fb, fb->w / 2, fb->h / 2 + 24, 390, 42,
                   starting ? "CLICK OR SPACE   START" : "CLICK OR SPACE   RESUME", 2,

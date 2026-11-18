@@ -1,8 +1,11 @@
-# War of Dots — C edition
+# Dotfront — C edition
 
-[![build](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml/badge.svg)](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml)
+[![build](https://github.com/Azizfois2/dotfront/actions/workflows/build.yml/badge.svg)](https://github.com/Azizfois2/dotfront/actions/workflows/build.yml)
 
-A small RTS in C, inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-) in this repository.
+An unofficial fan-made C RTS inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-)
+and [warofdots.net](https://warofdots.net/). Dotfront is not affiliated with or endorsed by the
+original project or its rights holders; “War of Dots” remains the property of its owner.
+
 You command blue dots against 2-6 AI factions (blue, red, green, gold, violet, cyan), offline or
 over a LAN, on one shared C game core.
 
@@ -16,7 +19,7 @@ platform SDK/headers.
 ## Download
 
 Prebuilt **Linux**, **Windows**, **macOS (universal)** and **Android** packages are attached to
-the [latest release](https://github.com/Azizfois2/war-of-dots-c/releases/latest). Android is a
+the [latest release](https://github.com/Azizfois2/dotfront/releases/latest). Android is a
 landscape APK for arm64 and armeabi-v7a devices; no Play Store account is needed. See
 [CHANGELOG.md](CHANGELOG.md) for what changed in each tag.
 
@@ -69,8 +72,8 @@ landscape APK for arm64 and armeabi-v7a devices; no Play Store account is needed
 cd c_rts
 make            # Linux/X11, or native macOS/Cocoa
 make windows    # Windows .exe (cross-compile with mingw-w64)
-make sdl        # optional SDL2 build on Linux -> wod_c_sdl
-make app        # macOS: "War of Dots.app" bundle with Finder icon
+make sdl        # optional SDL2 build on Linux -> dotfront_sdl
+make app        # macOS: "Dotfront.app" bundle with Finder icon
 make android    # Android APK (requires Android SDK + NDK 27.2)
 ```
 
@@ -84,9 +87,9 @@ Requirements:
 - macOS: Xcode command-line tools only, then plain `make` (or `make app` for the
   bundle). The window and input use AppKit/Cocoa, with no SDL or Homebrew dependency. If the native backend
   gives you trouble, `brew install sdl2 && make sdl` builds the SDL2 fallback
-  as `wod_c_sdl`.
+  as `dotfront_sdl`.
 
-The Windows executable is `wod_c.exe`; everything else is identical. Source artwork lives in
+The Windows executable is `dotfront.exe`; everything else is identical. Source artwork lives in
 `assets/icon.png` with generated `.ico`/`.icns` variants, and is embedded into each backend.
 
 ### Android
@@ -110,14 +113,14 @@ pan and pinch-zoom. City production and fortify are the four on-screen buttons a
 ## Play
 
 ```sh
-./wod_c                 # Linux
-wod_c.exe               # Windows
-./wod_c --seed 42       # reproducible map
-./wod_c --players 6     # 1 human + 5 AI factions (2-6 total)
-./wod_c --difficulty hard
-./wod_c --spectate      # watch an all-AI match with no fog of war
-./wod_c --host 47777 --players 4 --seed 12   # LAN host
-./wod_c --join 192.168.1.20:47777            # LAN client
+./dotfront                 # Linux
+dotfront.exe               # Windows
+./dotfront --seed 42       # reproducible map
+./dotfront --players 6     # 1 human + 5 AI factions (2-6 total)
+./dotfront --difficulty hard
+./dotfront --spectate      # watch an all-AI match with no fog of war
+./dotfront --host 47777 --players 4 --seed 12   # LAN host
+./dotfront --join 192.168.1.20:47777            # LAN client
 ```
 
 The start menu shows the seed, city count, map style and landmass silhouette. The camera starts
@@ -129,9 +132,9 @@ or `Q` to quit.
 
 ### LAN play
 
-1. On one machine start a host: `./wod_c --host 47777 --players 4 --seed 12`.
+1. On one machine start a host: `./dotfront --host 47777 --players 4 --seed 12`.
    The window title shows `[HOST]` and the lobby badge shows the port and connected clients.
-2. On each other machine run the same build: `./wod_c --join 192.168.1.20:47777`
+2. On each other machine run the same build: `./dotfront --join 192.168.1.20:47777`
    (replace the address with the host's LAN IP; append `:PORT` only if not 47777).
    Clients are assigned the next free faction and see the host's map in the lobby.
 3. The host presses `SPACE` to start. Any faction slot without a client is controlled by the AI,
@@ -248,8 +251,8 @@ faction's capital.
 ## Headless mode
 
 ```sh
-./wod_c --headless 180 --seed 3 --players 4
-./wod_c --headless 240 --seed 3 --players 6 --difficulty hard
+./dotfront --headless 180 --seed 3 --players 4
+./dotfront --headless 240 --seed 3 --players 6 --difficulty hard
 ```
 
 Runs every faction as AI for up to the given simulated seconds, printing map style, silhouette and size,

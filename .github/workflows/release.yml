@@ -18,11 +18,11 @@ jobs:
       - name: Package
         run: |
           tag="${GITHUB_REF_NAME:-snapshot}"
-          dir="war-of-dots-${tag}-linux-x86_64"
+          dir="dotfront-${tag}-linux-x86_64"
           mkdir -p "dist/$dir"
-          cp wod_c README.md CHANGELOG.md screenshot.png "dist/$dir/"
-          cp assets/icon.png "dist/$dir/war-of-dots.png"
-          cp packaging/linux/war-of-dots.desktop packaging/linux/install.sh "dist/$dir/"
+          cp dotfront README.md CHANGELOG.md screenshot.png "dist/$dir/"
+          cp assets/icon.png "dist/$dir/dotfront.png"
+          cp packaging/linux/dotfront.desktop packaging/linux/install.sh "dist/$dir/"
           tar -C dist -czf "dist/$dir.tar.gz" "$dir"
           rm -rf "dist/$dir"
       - uses: actions/upload-artifact@v4
@@ -39,10 +39,10 @@ jobs:
       - name: Package
         run: |
           tag="${GITHUB_REF_NAME:-snapshot}"
-          dir="war-of-dots-${tag}-windows-x86_64"
+          dir="dotfront-${tag}-windows-x86_64"
           mkdir -p "dist/$dir"
-          cp wod_c.exe README.md CHANGELOG.md "dist/$dir/"
-          cp assets/icon.png "dist/$dir/war-of-dots.png"
+          cp dotfront.exe README.md CHANGELOG.md "dist/$dir/"
+          cp assets/icon.png "dist/$dir/dotfront.png"
           (cd dist && zip -qr "$dir.zip" "$dir")
           rm -rf "dist/$dir"
       - uses: actions/upload-artifact@v4
@@ -60,8 +60,8 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME:-snapshot}"
           mkdir -p dist
-          ditto -c -k --sequesterRsrc --keepParent "War of Dots.app" \
-            "dist/war-of-dots-${tag}-macos-universal.zip"
+          ditto -c -k --sequesterRsrc --keepParent "Dotfront.app" \
+            "dist/dotfront-${tag}-macos-universal.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -83,21 +83,21 @@ jobs:
       - name: Build signed APK
         env:
           WOD_VERSION: ${{ github.ref_name }}
-          WOD_VERSION_CODE: '2'
+          WOD_VERSION_CODE: '3'
           WOD_KEYSTORE: ${{ github.workspace }}/android/release.keystore
-          WOD_KEYSTORE_PASS: warofdots-release
-          WOD_KEY_PASS: warofdots-release
-          WOD_KEY_ALIAS: warofdots
+          WOD_KEYSTORE_PASS: dotfront-release
+          WOD_KEY_PASS: dotfront-release
+          WOD_KEY_ALIAS: dotfront
         run: |
           keytool -genkeypair -v -keystore android/release.keystore \
-            -alias warofdots -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias dotfront -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "$WOD_KEYSTORE_PASS" -keypass "$WOD_KEY_PASS" \
-            -dname "CN=War of Dots"
+            -dname "CN=Dotfront"
           android/build-apk.sh assembleRelease
           mkdir -p dist
           apk=android/app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
-          cp "$apk" "dist/war-of-dots-${GITHUB_REF_NAME:-snapshot}-android.apk"
+          cp "$apk" "dist/dotfront-${GITHUB_REF_NAME:-snapshot}-android.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: android
@@ -114,6 +114,6 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          name: War of Dots ${{ github.ref_name }}
+          name: Dotfront ${{ github.ref_name }}
           generate_release_notes: true
           files: dist/*

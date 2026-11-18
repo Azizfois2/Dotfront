@@ -1,16 +1,16 @@
 plugins { id 'com.android.application' }
 
-def wodVersion = System.getenv("WOD_VERSION") ?: "1.1.0"
-def wodCode = (System.getenv("WOD_VERSION_CODE") ?: "2").toInteger()
+def wodVersion = (System.getenv("WOD_VERSION") ?: "1.2.0").replaceFirst("^v", "")
+def wodCode = (System.getenv("WOD_VERSION_CODE") ?: "3").toInteger()
 def keystore = System.getenv("WOD_KEYSTORE")
 
 android {
-    namespace "com.azizfois2.warofdots"
+    namespace "com.azizfois2.dotfront"
     compileSdk 35
     ndkVersion "27.2.12479018"
 
     defaultConfig {
-        applicationId "com.azizfois2.warofdots"
+        applicationId "com.azizfois2.dotfront"
         minSdk 21
         targetSdk 35
         versionCode wodCode
@@ -28,7 +28,7 @@ android {
             if (keystore) {
                 storeFile file(keystore)
                 storePassword System.getenv("WOD_KEYSTORE_PASS")
-                keyAlias System.getenv("WOD_KEY_ALIAS") ?: "warofdots"
+                keyAlias System.getenv("WOD_KEY_ALIAS") ?: "dotfront"
                 keyPassword System.getenv("WOD_KEY_PASS")
             }
         }

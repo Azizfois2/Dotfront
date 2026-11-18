@@ -291,8 +291,8 @@ Platform *plat_open(const char *title, int w, int h) {
         NSMenuItem *appItem = [[NSMenuItem alloc] init];
         [menubar addItem:appItem];
         [NSApp setMainMenu:menubar];
-        NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"WAR OF DOTS"];
-        NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit WAR OF DOTS"
+        NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"DOTFRONT"];
+        NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit DOTFRONT"
                                                           action:@selector(requestQuit:)
                                                    keyEquivalent:@"q"];
         [quitItem setTarget:view];

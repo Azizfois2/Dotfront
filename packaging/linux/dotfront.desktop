@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=War of Dots
+Name=Dotfront
 Comment=Minimalist real-time strategy with dots
-Exec=wod_c
-Icon=war-of-dots
+Exec=dotfront
+Icon=dotfront
 Terminal=false
 Categories=Game;StrategyGame;
 Keywords=rts;strategy;dots;

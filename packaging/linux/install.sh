@@ -3,11 +3,11 @@
 set -eu
 PREFIX=${PREFIX:-$HOME/.local}
 HERE=$(cd "$(dirname "$0")" && pwd)
-install -Dm755 "$HERE/wod_c" "$PREFIX/bin/wod_c"
-install -Dm644 "$HERE/war-of-dots.png" \
-    "$PREFIX/share/icons/hicolor/256x256/apps/war-of-dots.png"
-install -Dm644 "$HERE/war-of-dots.desktop" \
-    "$PREFIX/share/applications/war-of-dots.desktop"
+install -Dm755 "$HERE/dotfront" "$PREFIX/bin/dotfront"
+install -Dm644 "$HERE/dotfront.png" \
+    "$PREFIX/share/icons/hicolor/256x256/apps/dotfront.png"
+install -Dm644 "$HERE/dotfront.desktop" \
+    "$PREFIX/share/applications/dotfront.desktop"
 command -v update-desktop-database >/dev/null 2>&1 && \
     update-desktop-database "$PREFIX/share/applications" || true
-echo "Installed War of Dots. Run: wod_c"
+echo "Installed Dotfront. Run: dotfront"
