@@ -4,8 +4,9 @@ A small single-player RTS in C, inspired by the Python [War of Dots](https://git
 You command blue dots, the computer commands red dots, and the whole match runs offline on one machine.
 
 No game engine, no assets, no image libraries: the game draws into a 32-bit framebuffer and a
-small platform layer presents it. Linux uses Xlib/MIT-SHM, Windows uses GDI, and the game core
-is shared. Build dependencies are just a C compiler, `make`, and the platform SDK headers.
+small platform layer presents it. Linux uses Xlib/MIT-SHM, Windows uses GDI, macOS uses SDL2,
+and the game core is shared. Build dependencies are a C compiler, `make`, and the native
+platform SDK/headers.
 
 ![screenshot](screenshot.png)
 
@@ -28,8 +29,9 @@ is shared. Build dependencies are just a C compiler, `make`, and the platform SD
 
 ```sh
 cd c_rts
-make            # Linux / X11
+make            # Linux/X11, or macOS/SDL2
 make windows    # Windows .exe (cross-compile with mingw-w64)
+make sdl        # optional SDL2 build on Linux -> wod_c_sdl
 ```
 
 Requirements:
@@ -39,6 +41,8 @@ Requirements:
 - Windows: `make windows` from Linux with `x86_64-w64-mingw32-gcc` installed
   (`sudo apt install mingw-w64`). On Windows itself, use MSYS2/MinGW and
   `make windows MINGW=gcc`. No SDL or other runtime DLLs are needed.
+- macOS: Xcode command-line tools plus SDL2 (`brew install sdl2`), then plain
+  `make`. `make` selects the SDL2 backend automatically on Darwin.
 
 The Windows executable is `wod_c.exe`; everything else is identical.
 
@@ -108,6 +112,7 @@ src/font.h/c   5x7 bitmap font
 src/platform.h      window/presentation/event/time interface shared by all builds
 src/platform_x11.c  X11 backend: Xlib window + double-buffered MIT-SHM (XImage fallback)
 src/platform_win32.c Win32 backend: GDI window + top-down DIB, no external runtime
+src/platform_sdl.c   SDL2 backend used by macOS (also buildable on Linux via `make sdl`)
 src/main.c          camera, event handling, fixed-step loop, headless mode
 ```
 
@@ -120,9 +125,8 @@ Rendering runs at 1280×720 but is resolution-independent — change `WIN_W`/`WI
 - The AI has full map knowledge (fog applies to the player only).
 - Windows support is compile-tested via mingw-w64 but was not run on a Windows
   machine in this environment.
-- macOS still needs a Cocoa (or SDL) backend; only the ~250-line platform layer
-  would change (`plat_open`, `plat_pixels`, `plat_present`, `plat_poll`,
-  `plat_time`, `plat_sleep`).
+- The macOS path is the same SDL2 backend that was built and run on Linux here;
+  it has not been executed on macOS hardware yet.
 - One AI personality and no difficulty levels; it is deliberately aggressive.
 - No sound, no map/save loading, no network play.
 - The AI is tuned by simulation, not by long human playtesting.

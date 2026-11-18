@@ -1,3 +1,4 @@
 *.o
 wod_c
 wod_c.exe
+wod_c_sdl
