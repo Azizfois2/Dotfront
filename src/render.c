@@ -82,36 +82,62 @@ void render_free(Renderer *r) {
 /* Terrain blit (bilinear, screen-space)                               */
 /* ------------------------------------------------------------------ */
 
-static void blit_terrain(FB *fb, const Renderer *r, const View *v) {
+static uint8_t fog_cells[ROWS][COLS];
+
+static void build_fog_cells(const Game *g) {
+    for (int r = 0; r < ROWS; r++) {
+        for (int c = 0; c < COLS; c++) {
+            float vis = (float)g->vis[P_BLUE][r][c] / 255.0f;
+            float seen = (float)g->seen[P_BLUE][r][c] / 255.0f;
+            float fog = (1.0f - seen) * 0.88f + seen * (1.0f - vis) * 0.58f;
+            fog_cells[r][c] = (uint8_t)(clampf(fog, 0.0f, 1.0f) * 255.0f);
+        }
+    }
+}
+
+static void blit_terrain(FB *fb, const Game *g, const Renderer *r, const View *v) {
+    build_fog_cells(g);
     float inv = 1.0f / v->zoom;
+    int32_t gxfp = (int32_t)((((v->cam.x + 0.5f * inv) / CELL) - 0.5f) * 65536.0f);
+    int32_t gyfp = (int32_t)((((v->cam.y + 0.5f * inv) / CELL) - 0.5f) * 65536.0f);
+    int32_t dxfp = (int32_t)((inv / CELL) * 65536.0f);
+    int32_t dyfp = dxfp;
     for (int sy = 0; sy < fb->h; sy++) {
         float wy = v->cam.y + (float)sy * inv;
-        if (wy < 0.0f || wy >= (float)WORLD_H) continue;
+        int iy = gyfp >> 16;
+        int fyi = (gyfp >> 8) & 255;
+        if (iy < 0) { iy = 0; fyi = 0; }
+        if (iy > ROWS - 2) { iy = ROWS - 2; fyi = 255; }
+        int32_t gxrow = gxfp;
+        if (wy < 0.0f || wy >= (float)WORLD_H) { gyfp += dyfp; continue; }
         int y0 = (int)wy;
-        int y1 = y0 + 1 < WORLD_H ? y0 + 1 : y0;
-        float fy = wy - (float)y0;
+        if (y0 > WORLD_H - 1) y0 = WORLD_H - 1;
         uint32_t *row = &fb->px[sy * fb->w];
-        for (int sx = 0; sx < fb->w; sx++) {
+        for (int sx = 0; sx < fb->w; sx++, gxrow += dxfp) {
             float wx = v->cam.x + (float)sx * inv;
             if (wx < 0.0f || wx >= (float)WORLD_W) continue;
             int x0 = (int)wx;
-            int x1 = x0 + 1 < WORLD_W ? x0 + 1 : x0;
-            float fx = wx - (float)x0;
-            uint32_t a = r->terrain[y0 * WORLD_W + x0];
-            uint32_t b = r->terrain[y0 * WORLD_W + x1];
-            uint32_t c = r->terrain[y1 * WORLD_W + x0];
-            uint32_t d = r->terrain[y1 * WORLD_W + x1];
-            uint32_t top_r = (uint32_t)lerpf((float)((a >> 16) & 255), (float)((b >> 16) & 255), fx);
-            uint32_t bot_r = (uint32_t)lerpf((float)((c >> 16) & 255), (float)((d >> 16) & 255), fx);
-            uint32_t top_g = (uint32_t)lerpf((float)((a >> 8) & 255), (float)((b >> 8) & 255), fx);
-            uint32_t bot_g = (uint32_t)lerpf((float)((c >> 8) & 255), (float)((d >> 8) & 255), fx);
-            uint32_t top_b = (uint32_t)lerpf((float)(a & 255), (float)(b & 255), fx);
-            uint32_t bot_b = (uint32_t)lerpf((float)(c & 255), (float)(d & 255), fx);
-            uint32_t rr = (uint32_t)lerpf((float)top_r, (float)bot_r, fy);
-            uint32_t gg = (uint32_t)lerpf((float)top_g, (float)bot_g, fy);
-            uint32_t bb = (uint32_t)lerpf((float)top_b, (float)bot_b, fy);
+            if (x0 > WORLD_W - 1) x0 = WORLD_W - 1;
+            uint32_t c = r->terrain[y0 * WORLD_W + x0];
+            uint32_t rr = (c >> 16) & 255;
+            uint32_t gg = (c >> 8) & 255;
+            uint32_t bb = c & 255;
+            /* fog of war from the per-cell alpha map, bilinear + fixed point */
+            int ix = gxrow >> 16;
+            int fxi = (gxrow >> 8) & 255;
+            if (ix < 0) { ix = 0; fxi = 0; }
+            if (ix > COLS - 2) { ix = COLS - 2; fxi = 255; }
+            int f00 = fog_cells[iy][ix], f10 = fog_cells[iy][ix + 1];
+            int f01 = fog_cells[iy + 1][ix], f11 = fog_cells[iy + 1][ix + 1];
+            int ft = f00 + (((f10 - f00) * fxi) >> 8);
+            int fbt = f01 + (((f11 - f01) * fxi) >> 8);
+            int f = ft + (((fbt - ft) * fyi) >> 8);
+            rr = (uint32_t)((int)rr - ((((int)rr - 7) * f) >> 8));
+            gg = (uint32_t)((int)gg - ((((int)gg - 11) * f) >> 8));
+            bb = (uint32_t)((int)bb - ((((int)bb - 20) * f) >> 8));
             row[sx] = 0xFF000000u | (rr << 16) | (gg << 8) | bb;
         }
+        gyfp += dyfp;
     }
 }
 
@@ -191,6 +217,8 @@ static int unit_in_combat(const Game *g, const Unit *u) {
 static void draw_unit(FB *fb, const Game *g, const View *v, int idx) {
     const Unit *u = &g->units[idx];
     if (!u->alive) return;
+    if (u->owner != P_BLUE &&
+        game_visibility_at(g, P_BLUE, u->pos.x, u->pos.y) < 0.30f) return;
     float z = v->zoom;
     Vec2 pos = u->pos;
     if (unit_in_combat(g, u)) {
@@ -223,22 +251,39 @@ static void draw_unit(FB *fb, const Game *g, const View *v, int idx) {
 /* World frame                                                         */
 /* ------------------------------------------------------------------ */
 
-void render_world(FB *fb, const Game *g, const Renderer *r, const View *v) {
-    gfx_clear(fb, 0xFF0A1119);
-    blit_terrain(fb, r, v);
+void render_world(FB *fb, const Game *g, Renderer *r, const View *v) {
+    if (!r->screen || r->sw != fb->w || r->sh != fb->h) {
+        free(r->screen);
+        r->screen = malloc((size_t)fb->w * (size_t)fb->h * sizeof(uint32_t));
+        r->sw = fb->w;
+        r->sh = fb->h;
+        r->cache_valid = 0;
+    }
+    int refresh = !r->cache_valid ||
+                  r->cache_cam.x != v->cam.x || r->cache_cam.y != v->cam.y ||
+                  r->cache_zoom != v->zoom || (r->cache_age++ % 8) == 0;
+    if (refresh) {
+        FB terr = { r->screen, fb->w, fb->h };
+        gfx_clear(&terr, 0xFF0A1119);
+        blit_terrain(&terr, g, r, v);
+        r->cache_cam = v->cam;
+        r->cache_zoom = v->zoom;
+        r->cache_valid = 1;
+    }
+    memcpy(fb->px, r->screen, (size_t)fb->w * (size_t)fb->h * sizeof(uint32_t));
 
     /* city auras are drawn by draw_city */
 
-    /* own paths + rally lines */
+    /* own paths + rally lines (never reveal the opponent's intent) */
     for (int i = 0; i < MAX_UNITS; i++) {
         const Unit *u = &g->units[i];
-        if (!u->alive || u->pi >= u->plen) continue;
+        if (!u->alive || u->owner != P_BLUE || u->pi >= u->plen) continue;
         draw_path(fb, v, &u->path[u->pi], u->plen - u->pi,
                   owner_color(u->owner), 70, fmaxf(1.2f, 1.6f * v->zoom));
     }
     for (int i = 0; i < g->ncity; i++) {
         const City *c = &g->cities[i];
-        if (c->owner < 0 || !c->has_rally) continue;
+        if (c->owner != P_BLUE || !c->has_rally) continue;
         Vec2 s = w2s(v, c->pos), e = w2s(v, c->rally);
         gfx_line(fb, s.x, s.y, e.x, e.y, fmaxf(1.0f, 1.5f * v->zoom), 0xFF7FB2FF);
         gfx_ring(fb, e.x, e.y, 5.0f, 1.5f, 0xFF7FB2FF);

@@ -3,6 +3,9 @@
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 #include <X11/XKBlib.h>
+#include <X11/extensions/XShm.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -212,12 +215,45 @@ int main(int argc, char **argv) {
 
     GC gc = XCreateGC(dpy, win, 0, NULL);
     FB fb = { .w = WIN_W, .h = WIN_H };
-    fb.px = malloc((size_t)WIN_W * WIN_H * sizeof(uint32_t));
-    if (!fb.px) { fprintf(stderr, "out of memory\n"); return 1; }
-    XImage *img = XCreateImage(dpy, DefaultVisual(dpy, scr),
-                               (unsigned)DefaultDepth(dpy, scr), ZPixmap, 0,
-                               (char *)fb.px, WIN_W, WIN_H, 32, 0);
-
+    XImage *img[2] = { NULL, NULL };
+    XShmSegmentInfo shm[2];
+    uint32_t *shmbuf[2] = { NULL, NULL };
+    int nbuf = 0, shm_base = 0;
+    int freebuf[2] = { 1, 1 };
+    memset(shm, 0, sizeof(shm));
+    /* shared-memory presentation avoids a 3.7 MB client->server copy each frame */
+    if (XShmQueryExtension(dpy)) {
+        shm_base = XShmGetEventBase(dpy);
+        for (int i = 0; i < 2; i++) {
+            img[i] = XShmCreateImage(dpy, DefaultVisual(dpy, scr),
+                                     (unsigned)DefaultDepth(dpy, scr), ZPixmap,
+                                     NULL, &shm[i], WIN_W, WIN_H);
+            if (!img[i] || img[i]->bytes_per_line != WIN_W * 4) break;
+            shm[i].shmid = shmget(IPC_PRIVATE,
+                                  (size_t)img[i]->bytes_per_line * (size_t)img[i]->height,
+                                  IPC_CREAT | 0600);
+            if (shm[i].shmid < 0) break;
+            shm[i].shmaddr = shmat(shm[i].shmid, NULL, 0);
+            shm[i].readOnly = False;
+            if (shm[i].shmaddr == (char *)-1) break;
+            img[i]->data = shm[i].shmaddr;
+            if (!XShmAttach(dpy, &shm[i])) break;
+            XSync(dpy, False);
+            shmctl(shm[i].shmid, IPC_RMID, 0);
+            shmbuf[i] = (uint32_t *)img[i]->data;
+            nbuf++;
+        }
+    }
+    if (nbuf == 0) {
+        fb.px = malloc((size_t)WIN_W * WIN_H * sizeof(uint32_t));
+        if (!fb.px) { fprintf(stderr, "out of memory\n"); return 1; }
+        img[0] = XCreateImage(dpy, DefaultVisual(dpy, scr),
+                              (unsigned)DefaultDepth(dpy, scr), ZPixmap, 0,
+                              (char *)fb.px, WIN_W, WIN_H, 32, 0);
+    } else {
+        fb.px = shmbuf[0];
+    }
+    int curbuf = 0;
     Game g;
     game_init(&g, seed);
     g.ai_enabled[1] = 1;
@@ -239,6 +275,13 @@ int main(int argc, char **argv) {
         while (XPending(dpy)) {
             XEvent e;
             XNextEvent(dpy, &e);
+            if (nbuf > 0 && e.type == shm_base + ShmCompletion) {
+                XShmCompletionEvent *ce = (XShmCompletionEvent *)&e;
+                for (int i = 0; i < nbuf; i++)
+                    if ((shm[i].shmseg == ce->shmseg))
+                        freebuf[i] = 1;
+                continue;
+            }
             switch (e.type) {
             case ClientMessage:
                 if ((Atom)e.xclient.data.l[0] == wm_delete) running = 0;
@@ -374,11 +417,47 @@ int main(int argc, char **argv) {
         v.plen = in.plen;
         memcpy(v.path, in.path, sizeof(Vec2) * (size_t)in.plen);
 
+        /* select a back buffer BEFORE drawing; never draw into the visible one */
+        if (nbuf > 0) {
+            if (!freebuf[curbuf]) {
+                XEvent e;
+                XNextEvent(dpy, &e);
+                if (e.type == shm_base + ShmCompletion) {
+                    XShmCompletionEvent *ce = (XShmCompletionEvent *)&e;
+                    for (int i = 0; i < nbuf; i++)
+                        if (shm[i].shmseg == ce->shmseg)
+                            freebuf[i] = 1;
+                } else if (e.type == ClientMessage) {
+                    if ((Atom)e.xclient.data.l[0] == wm_delete) running = 0;
+                } else {
+                    XPutBackEvent(dpy, &e);
+                }
+                if (!freebuf[curbuf]) {
+                    XSync(dpy, False);
+                    freebuf[0] = freebuf[1] = 1;
+                }
+            }
+            fb.px = shmbuf[curbuf];
+        }
         (void)redraw;
         render_world(&fb, &g, &r, &v);
         render_hud(&fb, &g, &r, &v);
-        XPutImage(dpy, win, gc, img, 0, 0, 0, 0, WIN_W, WIN_H);
-        XFlush(dpy);
+        if (nbuf > 0) {
+            if (nbuf > 1) {
+                XShmPutImage(dpy, win, gc, img[curbuf], 0, 0, 0, 0,
+                             WIN_W, WIN_H, True);
+                freebuf[curbuf] = 0;
+                curbuf ^= 1;
+            } else {
+                XShmPutImage(dpy, win, gc, img[0], 0, 0, 0, 0,
+                             WIN_W, WIN_H, False);
+                XSync(dpy, False);
+            }
+            XFlush(dpy);
+        } else {
+            XPutImage(dpy, win, gc, img[0], 0, 0, 0, 0, WIN_W, WIN_H);
+            XFlush(dpy);
+        }
 
         double frame_end = now_sec();
         double spare = SIM_DT - (frame_end - t);
@@ -391,7 +470,16 @@ int main(int argc, char **argv) {
     }
 
     render_free(&r);
-    XDestroyImage(img);
+    if (nbuf > 0) {
+        for (int i = 0; i < nbuf; i++) {
+            XShmDetach(dpy, &shm[i]);
+            shmdt(shm[i].shmaddr);
+            img[i]->data = NULL;
+            free(img[i]);
+        }
+    } else {
+        XDestroyImage(img[0]);
+    }
     XFreeGC(dpy, gc);
     XDestroyWindow(dpy, win);
     XCloseDisplay(dpy);

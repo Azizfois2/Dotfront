@@ -11,6 +11,12 @@ typedef struct {
     uint32_t *terrain;   /* full world pre-render, WORLD_W x WORLD_H */
     uint32_t *mini;      /* minimap thumbnail */
     int mw, mh;
+    uint32_t *screen;    /* cached terrain+fog at screen resolution */
+    int sw, sh;
+    Vec2 cache_cam;      /* camera state the cache was built for */
+    float cache_zoom;
+    int cache_valid;
+    int cache_age;
 } Renderer;
 
 typedef struct {
@@ -26,7 +32,7 @@ typedef struct {
 
 void render_init(Renderer *r, const Game *g);
 void render_free(Renderer *r);
-void render_world(FB *fb, const Game *g, const Renderer *r, const View *v);
+void render_world(FB *fb, const Game *g, Renderer *r, const View *v);
 void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v);
 
 static inline Vec2 w2s(const View *v, Vec2 w) {

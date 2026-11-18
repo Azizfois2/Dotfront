@@ -75,6 +75,7 @@ void game_init(Game *g, uint32_t seed) {
     g->end_time = 0.0f;
     g->paused = 1;   /* wait for the player to press space */
     update_stats(g);
+    game_update_vision(g);
 }
 
 /* ------------------------------------------------------------------ */
@@ -148,6 +149,75 @@ static void update_cities(Game *g, float dt) {
 /* Frame update                                                        */
 /* ------------------------------------------------------------------ */
 
+/* ---------------- fog of war --------------------------------------- */
+
+static void vision_stamp(Game *g, int player, Vec2 pos, float radius) {
+    int c0 = (int)clampf((pos.x - radius) / CELL, 0, COLS - 1);
+    int c1 = (int)clampf((pos.x + radius) / CELL, 0, COLS - 1);
+    int r0 = (int)clampf((pos.y - radius) / CELL, 0, ROWS - 1);
+    int r1 = (int)clampf((pos.y + radius) / CELL, 0, ROWS - 1);
+    for (int r = r0; r <= r1; r++) {
+        float cy = (float)r * CELL + CELL * 0.5f;
+        for (int c = c0; c <= c1; c++) {
+            float cx = (float)c * CELL + CELL * 0.5f;
+            float d = sqrtf((cx - pos.x) * (cx - pos.x) + (cy - pos.y) * (cy - pos.y));
+            if (d >= radius) continue;
+            float t = 1.0f - d / radius;
+            uint8_t v = (uint8_t)(255.0f * smoothf(clampf(t * 1.4f, 0.0f, 1.0f)));
+            if (v > g->vis[player][r][c]) g->vis[player][r][c] = v;
+        }
+    }
+}
+
+static void update_vision(Game *g, int player) {
+    memset(g->vis[player], 0, sizeof(g->vis[player]));
+    for (int i = 0; i < g->ncity; i++) {
+        if (g->cities[i].owner == player)
+            vision_stamp(g, player, g->cities[i].pos, 200.0f);
+    }
+    for (int i = 0; i < MAX_UNITS; i++) {
+        Unit *u = &g->units[i];
+        if (!u->alive || u->owner != player) continue;
+        uint8_t t = world_terrain_at(&g->w, u->pos.x, u->pos.y);
+        float radius = 105.0f;
+        if (t == T_HILL) radius = 165.0f;
+        else if (t == T_FOREST) radius = 80.0f;
+        else if (t == T_WATER) radius = 90.0f;
+        vision_stamp(g, player, u->pos, radius);
+    }
+    for (int r = 0; r < ROWS; r++)
+        for (int c = 0; c < COLS; c++)
+            if (g->vis[player][r][c] > g->seen[player][r][c])
+                g->seen[player][r][c] = g->vis[player][r][c];
+}
+
+void game_update_vision(Game *g) {
+    update_vision(g, P_BLUE);
+    update_vision(g, P_RED);
+}
+
+static float grid_bilinear(const uint8_t grid[ROWS][COLS], float x, float y) {
+    float gx = clampf(x / CELL - 0.5f, 0.0f, (float)(COLS - 1));
+    float gy = clampf(y / CELL - 0.5f, 0.0f, (float)(ROWS - 1));
+    int c = (int)gx, r = (int)gy;
+    int c1 = c + 1 < COLS ? c + 1 : c;
+    int r1 = r + 1 < ROWS ? r + 1 : r;
+    float fx = gx - (float)c, fy = gy - (float)r;
+    float a = (float)grid[r][c], b = (float)grid[r][c1];
+    float d = (float)grid[r1][c], e = (float)grid[r1][c1];
+    return lerpf(lerpf(a, b, fx), lerpf(d, e, fx), fy) / 255.0f;
+}
+
+float game_visibility_at(const Game *g, int player, float x, float y) {
+    return grid_bilinear(g->vis[player], x, y);
+}
+
+float game_seen_at(const Game *g, int player, float x, float y) {
+    return grid_bilinear(g->seen[player], x, y);
+}
+
+/* ------------------------------------------------------------------ */
+
 static void update_stats(Game *g) {
     g->cities_owned[0] = g->cities_owned[1] = 0;
     g->units_owned[0] = g->units_owned[1] = 0;
@@ -171,6 +241,7 @@ void game_update(Game *g, float dt) {
     update_cities(g, dt);
     units_update(g, dt);
     update_stats(g);
+    game_update_vision(g);
 
     for (int p = 0; p < 2; p++) {
         if (g->units_owned[p] == 0 && g->cities_owned[p] == 0) {

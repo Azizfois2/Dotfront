@@ -1,7 +1,7 @@
 CC      ?= gcc
 CFLAGS  ?= -O2 -std=c11 -Wall -Wextra -Wshadow -Wno-unused-parameter
 LDFLAGS ?=
-LIBS     = -lX11 -lm
+LIBS     = -lX11 -lXext -lm
 
 SRC = src/main.c src/gfx.c src/font.c src/world.c src/game.c src/units.c src/ai.c src/render.c src/hud.c
 OBJ = $(SRC:.c=.o)

@@ -13,6 +13,8 @@ presents it through Xlib, so the only build dependencies are a C compiler, `make
 - Procedurally generated island every match (value-noise elevation + forest layer, sea border)
 - Five terrain types with real gameplay effects: plains, forest, hill, water, impassable mountain
 - Selection (click, shift-add, box select), hand-drawn movement paths, and formation offsets
+- Fog of war with explored-terrain memory, terrain-scaled vision (hills see far, forests short),
+  enemy units hidden outside your sight, and a matching fogged minimap
 - Mountain-aware routing: clear path segments are kept exactly as drawn, blocked ones are
   replaced by a BFS grid route so units never wedge themselves against a cliff
 - Cities: capture by presence/majority, unit production, rally points for new units
@@ -29,7 +31,7 @@ make
 ```
 
 Requirements: `gcc` (or clang), `make`, and the X11 development headers
-(Debian/Ubuntu: `sudo apt install build-essential libx11-dev`).
+(Debian/Ubuntu: `sudo apt install build-essential libx11-dev libxext-dev`).
 
 ## Play
 
@@ -58,6 +60,10 @@ The game starts paused — press `SPACE` to begin.
 
 - **Terrain**: plains 100 % speed / 100 % damage, forest 80 % / 75 %, hills 70 % / 150 %,
   water 60 % / 50 %. Mountains cannot be crossed.
+- **Fog of war**: you only see what your dots and cities can see. Vision is 105 px on plains,
+  165 px on hills, 80 px in forest, plus 200 px around your cities. Areas you have explored stay
+  dimly visible as terrain memory, but enemy dots disappear into the fog. City locations and
+  ownership are always known.
 - **Combat** is automatic: every dot attacks the closest enemy within range, once per frame,
   scaled by the terrain it stands on. There is no manual attack button.
 - **Cities** flip after 2 seconds when one side has more units inside the capture radius
@@ -89,7 +95,8 @@ src/render.h/c terrain pre-render, terrain blit, units, cities, paths, selection
 src/hud.c      top bar, minimap, help, selection info, pause/win overlays
 src/gfx.h/c    framebuffer primitives: AA discs, thick lines, triangles, text
 src/font.h/c   5x7 bitmap font
-src/main.c     X11 window, input, camera, fixed-step loop, headless mode
+src/main.c     X11 window, double-buffered MIT-SHM presentation, input, camera,
+               fixed-step loop, headless mode
 ```
 
 Simulation is fixed at 60 Hz (`SIM_DT`), display syncs to the same rate. All match tuning lives
@@ -98,7 +105,7 @@ Rendering runs at 1280×720 but is resolution-independent — change `WIN_W`/`WI
 
 ## Known limitations / next steps
 
-- No fog of war (the AI sees the whole map).
+- The AI has full map knowledge (fog applies to the player only).
 - One AI personality and no difficulty levels; it is deliberately aggressive.
 - No sound, no map/save loading, no network play.
 - The AI is tuned by simulation, not by long human playtesting.

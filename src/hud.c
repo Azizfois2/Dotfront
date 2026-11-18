@@ -19,9 +19,23 @@ static void draw_minimap(FB *fb, const Game *g, const Renderer *r, const View *v
     int mx = fb->w - r->mw - 14;
     int my = fb->h - r->mh - 34;
     gfx_fill(fb, mx - 4, my - 4, r->mw + 8, r->mh + 8, 0xCC0A0F15);
-    for (int y = 0; y < r->mh; y++)
-        for (int x = 0; x < r->mw; x++)
-            gfx_px(fb, mx + x, my + y, r->mini[y * r->mw + x]);
+    for (int y = 0; y < r->mh; y++) {
+        for (int x = 0; x < r->mw; x++) {
+            float wx = ((float)x + 0.5f) / (float)r->mw * (float)WORLD_W;
+            float wy = ((float)y + 0.5f) / (float)r->mh * (float)WORLD_H;
+            int cc = (int)(wx / CELL), rr2 = (int)(wy / CELL);
+            if (cc > COLS - 1) cc = COLS - 1;
+            if (rr2 > ROWS - 1) rr2 = ROWS - 1;
+            float vis = (float)g->vis[P_BLUE][rr2][cc] / 255.0f;
+            float seen = (float)g->seen[P_BLUE][rr2][cc] / 255.0f;
+            float fog = (1.0f - seen) * 0.88f + seen * (1.0f - vis) * 0.55f;
+            uint32_t c0 = r->mini[y * r->mw + x];
+            uint32_t rr = (uint32_t)lerpf((float)((c0 >> 16) & 255), 7.0f, fog);
+            uint32_t gg = (uint32_t)lerpf((float)((c0 >> 8) & 255), 11.0f, fog);
+            uint32_t bb = (uint32_t)lerpf((float)(c0 & 255), 20.0f, fog);
+            gfx_px(fb, mx + x, my + y, 0xFF000000u | (rr << 16) | (gg << 8) | bb);
+        }
+    }
 
     for (int i = 0; i < g->ncity; i++) {
         const City *c = &g->cities[i];
@@ -33,6 +47,8 @@ static void draw_minimap(FB *fb, const Game *g, const Renderer *r, const View *v
     for (int i = 0; i < MAX_UNITS; i++) {
         const Unit *u = &g->units[i];
         if (!u->alive) continue;
+        if (u->owner != P_BLUE &&
+            game_visibility_at(g, P_BLUE, u->pos.x, u->pos.y) < 0.30f) continue;
         int x = mx + (int)(u->pos.x / WORLD_W * (float)r->mw);
         int y = my + (int)(u->pos.y / WORLD_H * (float)r->mh);
         gfx_px(fb, x, y, owner_color(u->owner));
