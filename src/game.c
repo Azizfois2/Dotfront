@@ -22,8 +22,8 @@ int game_spawn_unit(Game *g, int owner, Vec2 pos, int type) {
         u->max_hp = UNIT_TYPE[type].hp;
         u->hp = u->max_hp;
         u->pos = pos;
-        u->pos.x = clampf(u->pos.x, UNIT_R, (float)WORLD_W - UNIT_R);
-        u->pos.y = clampf(u->pos.y, UNIT_R, (float)WORLD_H - UNIT_R);
+        u->pos.x = clampf(u->pos.x, UNIT_R, (float)g->w.width - UNIT_R);
+        u->pos.y = clampf(u->pos.y, UNIT_R, (float)g->w.height - UNIT_R);
         if (!world_walkable(&g->w, u->pos.x, u->pos.y)) {
             /* nudge out of a mountain until we find ground */
             for (int k = 0; k < 24; k++) {
@@ -38,20 +38,27 @@ int game_spawn_unit(Game *g, int owner, Vec2 pos, int type) {
     return -1;
 }
 
-void game_init(Game *g, uint32_t seed) {
+void game_init(Game *g, uint32_t seed, int players) {
     memset(g, 0, sizeof(*g));
+    if (players < 2) players = 2;
+    if (players > MAX_PLAYERS) players = MAX_PLAYERS;
+    g->players = players;
+    g->local = P_BLUE;
     g->sel_city = -1;
     g->winner = -1;
     g->menu = 1;
     g->sound_on = 1;
-    g->difficulty[0] = g->difficulty[1] = DIFF_NORMAL;
-    for (int p2 = 0; p2 < 2; p2++)
-        for (int i2 = 0; i2 < MAX_CITIES; i2++)
-            g->city_last_owner[p2][i2] = -2;
+    for (int p = 0; p < MAX_PLAYERS; p++) {
+        g->difficulty[p] = DIFF_NORMAL;
+        g->ai_enabled[p] = (p != g->local);
+        for (int i = 0; i < MAX_CITIES; i++) g->city_last_owner[p][i] = -2;
+    }
+    for (int r = 0; r < MAX_ROWS; r++)
+        for (int c = 0; c < MAX_COLS; c++) g->terr_owner[r][c] = -1;
 
-    Vec2 pos[MAP_CITIES];
+    Vec2 pos[MAX_CITIES];
     int n = 0;
-    world_generate(&g->w, seed, pos, &n);
+    world_generate(&g->w, seed, players, pos, &n);
     g->ncity = n;
     for (int i = 0; i < n; i++) {
         memset(&g->cities[i], 0, sizeof(City));
@@ -61,27 +68,48 @@ void game_init(Game *g, uint32_t seed) {
         g->cities[i].prod_type = UT_SOLDIER;
     }
 
-    /* Capitals: the two most opposite cities. */
-    int cap0 = 0, cap1 = 0;
-    float lo = 1e30f, hi = -1e30f;
+    /* Capitals: farthest-pair seed, then greedy farthest-point sampling so
+     * every faction starts spread around the map instead of in one corner. */
+    int chosen[MAX_PLAYERS] = { 0 };
+    int used[MAX_CITIES] = { 0 };
+    int a = 0, b = (n > 1 ? 1 : 0);
+    float best_pair = -1.0f;
     for (int i = 0; i < n; i++) {
-        float s = pos[i].x + pos[i].y;
-        if (s < lo) { lo = s; cap0 = i; }
-        if (s > hi) { hi = s; cap1 = i; }
+        for (int j = i + 1; j < n; j++) {
+            float d = vdist(pos[i], pos[j]);
+            if (d > best_pair) { best_pair = d; a = i; b = j; }
+        }
     }
-    if (cap0 == cap1 && n > 1) cap1 = (cap0 + 1) % n;
-    g->capital[0] = g->cities[cap0].pos;
-    g->capital[1] = g->cities[cap1].pos;
-    g->cities[cap0].owner = P_BLUE;
-    g->cities[cap1].owner = P_RED;
+    chosen[0] = a;
+    if (players > 1) chosen[1] = b;
+    used[a] = 1;
+    used[b] = 1;
+    for (int k = 2; k < players; k++) {
+        int pick = -1;
+        float best = -1.0f;
+        for (int i = 0; i < n; i++) {
+            if (used[i]) continue;
+            float nearest = 1e30f;
+            for (int j = 0; j < k; j++) {
+                float d = vdist(pos[i], pos[chosen[j]]);
+                if (d < nearest) nearest = d;
+            }
+            if (nearest > best) { best = nearest; pick = i; }
+        }
+        if (pick < 0) pick = k % n;
+        chosen[k] = pick;
+        used[pick] = 1;
+    }
 
-    for (int side = 0; side < 2; side++) {
-        int cap = side == 0 ? cap0 : cap1;
+    for (int p = 0; p < players; p++) {
+        int cap = chosen[p];
+        g->capital[p] = g->cities[cap].pos;
+        g->cities[cap].owner = p;
         for (int k = 0; k < 4; k++) {
-            float a = (float)k * 1.5707963f + 0.4f;
-            Vec2 p = v2(g->cities[cap].pos.x + cosf(a) * 20.0f,
-                        g->cities[cap].pos.y + sinf(a) * 20.0f);
-            game_spawn_unit(g, side, p, UT_SOLDIER);
+            float ang = (float)k * 1.5707963f + 0.4f + (float)p * 0.17f;
+            Vec2 spawn = v2(g->cities[cap].pos.x + cosf(ang) * 20.0f,
+                            g->cities[cap].pos.y + sinf(ang) * 20.0f);
+            game_spawn_unit(g, p, spawn, UT_SOLDIER);
         }
     }
     g->time = 0.0f;
@@ -89,6 +117,7 @@ void game_init(Game *g, uint32_t seed) {
     g->paused = 1;   /* wait for the player to press space */
     update_stats(g);
     game_update_vision(g);
+    game_update_territory(g);
 }
 
 /* ------------------------------------------------------------------ */
@@ -106,21 +135,46 @@ static int count_in_city(const Game *g, int city, int owner) {
     return count;
 }
 
+int game_unit_cap(const Game *g) {
+    int n = g->players > 0 ? g->players : 2;
+    int cap = MAX_UNITS / n;
+    if (cap > UNIT_CAP) cap = UNIT_CAP;
+    if (cap < 14) cap = 14;
+    return cap;
+}
+
 static void update_cities(Game *g, float dt) {
+    int cap = game_unit_cap(g);
+    int owned_count[MAX_PLAYERS];
+    for (int p = 0; p < MAX_PLAYERS; p++) owned_count[p] = g->units_owned[p];
     for (int i = 0; i < g->ncity; i++) {
         City *c = &g->cities[i];
-        int blue = count_in_city(g, i, P_BLUE);
-        int red = count_in_city(g, i, P_RED);
-        int contender = -1;
-        int diff = blue - red;
+        int counts[MAX_PLAYERS] = { 0 };
+        for (int p = 0; p < g->players; p++) counts[p] = count_in_city(g, i, p);
 
-        if (blue > 0 && red == 0) contender = P_BLUE;
-        else if (red > 0 && blue == 0) contender = P_RED;
-        else if (diff > 0) contender = P_BLUE;   /* majority holds the square */
-        else if (diff < 0) contender = P_RED;
+        int best = -1, best_n = 0, second_n = 0;
+        for (int p = 0; p < g->players; p++) {
+            if (counts[p] > best_n) {
+                second_n = best_n;
+                best_n = counts[p];
+                best = p;
+            } else if (counts[p] > second_n) {
+                second_n = counts[p];
+            }
+        }
+        int contender = -1;
+        int diff = 0;
+        if (best_n > 0 && best != c->owner) {
+            int held = (c->owner >= 0 && c->owner < g->players) ? counts[c->owner] : 0;
+            if (best_n > held) {
+                contender = best;
+                diff = best_n - (held > second_n ? held : second_n);
+                if (diff < 1) diff = 1;
+            }
+        }
 
         if (contender >= 0 && c->owner != contender) {
-            float rate = 1.0f + 0.25f * (float)(diff > 0 ? diff : -diff);
+            float rate = 1.0f + 0.25f * (float)diff;
             if (rate > 2.0f) rate = 2.0f;
             if (c->fortified) rate *= 0.68f;   /* walls slow the flip */
             c->cap += dt * rate / CAPTURE_TIME;
@@ -152,17 +206,18 @@ static void update_cities(Game *g, float dt) {
         }
         if (c->owner < 0 || c->fort_t > 0.0f) continue;
 
-        int count = g->units_owned[c->owner];
+        int count = owned_count[c->owner];
         int pt = c->prod_type;
         if (pt < 0 || pt >= UT_COUNT) pt = UT_SOLDIER;
         c->spawn_t += dt;
         float interval = (PROD_BASE + PROD_PER_UNIT * (float)count) *
                          UNIT_TYPE[pt].build_time;
-        if (count < UNIT_CAP && c->spawn_t >= interval) {
+        if (count < cap && c->spawn_t >= interval) {
             c->spawn_t = 0.0f;
             Vec2 p = v2(c->pos.x + rnd_range(&g->w.seed, -6.0f, 6.0f),
                         c->pos.y + rnd_range(&g->w.seed, -6.0f, 6.0f));
             int id = game_spawn_unit(g, c->owner, p, pt);
+            if (id >= 0) owned_count[c->owner]++;
             if (id >= 0 && c->has_rally) {
                 Unit *u = &g->units[id];
                 int rn = world_route(&g->w, c->pos, c->rally, u->path, MAX_PATH);
@@ -182,10 +237,10 @@ static void update_cities(Game *g, float dt) {
 /* ---------------- fog of war --------------------------------------- */
 
 static void vision_stamp(Game *g, int player, Vec2 pos, float radius) {
-    int c0 = (int)clampf((pos.x - radius) / CELL, 0, COLS - 1);
-    int c1 = (int)clampf((pos.x + radius) / CELL, 0, COLS - 1);
-    int r0 = (int)clampf((pos.y - radius) / CELL, 0, ROWS - 1);
-    int r1 = (int)clampf((pos.y + radius) / CELL, 0, ROWS - 1);
+    int c0 = (int)clampf((pos.x - radius) / CELL, 0, g->w.cols - 1);
+    int c1 = (int)clampf((pos.x + radius) / CELL, 0, g->w.cols - 1);
+    int r0 = (int)clampf((pos.y - radius) / CELL, 0, g->w.rows - 1);
+    int r1 = (int)clampf((pos.y + radius) / CELL, 0, g->w.rows - 1);
     for (int r = r0; r <= r1; r++) {
         float cy = (float)r * CELL + CELL * 0.5f;
         for (int c = c0; c <= c1; c++) {
@@ -219,15 +274,15 @@ static void update_vision(Game *g, int player) {
         else if (t == T_WATER) radius *= 0.86f;
         vision_stamp(g, player, u->pos, radius);
     }
-    for (int r = 0; r < ROWS; r++)
-        for (int c = 0; c < COLS; c++)
+    for (int r = 0; r < g->w.rows; r++)
+        for (int c = 0; c < g->w.cols; c++)
             if (g->vis[player][r][c] > g->seen[player][r][c])
                 g->seen[player][r][c] = g->vis[player][r][c];
 
     /* remember the last owner seen for each city (stale intel is still intel) */
     for (int i = 0; i < g->ncity; i++) {
-        int c = (int)clampf(g->cities[i].pos.x / CELL, 0, COLS - 1);
-        int r = (int)clampf(g->cities[i].pos.y / CELL, 0, ROWS - 1);
+        int c = (int)clampf(g->cities[i].pos.x / CELL, 0, g->w.cols - 1);
+        int r = (int)clampf(g->cities[i].pos.y / CELL, 0, g->w.rows - 1);
         if (g->vis[player][r][c] > 26) {
             g->city_known[player][i] = 1;
             g->city_last_owner[player][i] = (int8_t)g->cities[i].owner;
@@ -236,16 +291,56 @@ static void update_vision(Game *g, int player) {
 }
 
 void game_update_vision(Game *g) {
-    update_vision(g, P_BLUE);
-    update_vision(g, P_RED);
+    for (int p = 0; p < g->players; p++) update_vision(g, p);
 }
 
-static float grid_bilinear(const uint8_t grid[ROWS][COLS], float x, float y) {
-    float gx = clampf(x / CELL - 0.5f, 0.0f, (float)(COLS - 1));
-    float gy = clampf(y / CELL - 0.5f, 0.0f, (float)(ROWS - 1));
+/* City influence makes the territory map. Overlapping cities are resolved by
+ * distance; neutral cells get -1. Rebuilt a few times per second. */
+void game_update_territory(Game *g) {
+    static uint16_t score[MAX_ROWS][MAX_COLS];
+    memset(score, 0, sizeof(score));
+    for (int r = 0; r < g->w.rows; r++)
+        for (int c = 0; c < g->w.cols; c++) g->terr_owner[r][c] = -1;
+
+    int rad_cells = (int)(TERRITORY_RADIUS / CELL) + 1;
+    for (int i = 0; i < g->ncity; i++) {
+        const City *city = &g->cities[i];
+        if (city->owner < 0) continue;
+        int cr = (int)(city->pos.y / CELL), cc = (int)(city->pos.x / CELL);
+        for (int dr = -rad_cells; dr <= rad_cells; dr++) {
+            int r = cr + dr;
+            if (r < 0 || r >= g->w.rows) continue;
+            for (int dc = -rad_cells; dc <= rad_cells; dc++) {
+                int c = cc + dc;
+                if (c < 0 || c >= g->w.cols) continue;
+                float dx = ((float)c + 0.5f) * CELL - city->pos.x;
+                float dy = ((float)r + 0.5f) * CELL - city->pos.y;
+                float d = sqrtf(dx * dx + dy * dy);
+                if (d >= TERRITORY_RADIUS) continue;
+                uint16_t s = (uint16_t)((TERRITORY_RADIUS - d) * 4.0f);
+                if (s > score[r][c]) {
+                    score[r][c] = s;
+                    g->terr_owner[r][c] = (int8_t)city->owner;
+                }
+            }
+        }
+    }
+    g->terr_t = 0.4f;
+}
+
+int game_territory_at(const Game *g, float x, float y) {
+    int c = (int)clampf(x / CELL, 0, g->w.cols - 1);
+    int r = (int)clampf(y / CELL, 0, g->w.rows - 1);
+    return g->terr_owner[r][c];
+}
+
+static float grid_bilinear(const Game *g, const uint8_t grid[MAX_ROWS][MAX_COLS],
+                           float x, float y) {
+    float gx = clampf(x / CELL - 0.5f, 0.0f, (float)(g->w.cols - 1));
+    float gy = clampf(y / CELL - 0.5f, 0.0f, (float)(g->w.rows - 1));
     int c = (int)gx, r = (int)gy;
-    int c1 = c + 1 < COLS ? c + 1 : c;
-    int r1 = r + 1 < ROWS ? r + 1 : r;
+    int c1 = c + 1 < g->w.cols ? c + 1 : c;
+    int r1 = r + 1 < g->w.rows ? r + 1 : r;
     float fx = gx - (float)c, fy = gy - (float)r;
     float a = (float)grid[r][c], b = (float)grid[r][c1];
     float d = (float)grid[r1][c], e = (float)grid[r1][c1];
@@ -253,11 +348,11 @@ static float grid_bilinear(const uint8_t grid[ROWS][COLS], float x, float y) {
 }
 
 float game_visibility_at(const Game *g, int player, float x, float y) {
-    return grid_bilinear(g->vis[player], x, y);
+    return grid_bilinear(g, g->vis[player], x, y);
 }
 
 float game_seen_at(const Game *g, int player, float x, float y) {
-    return grid_bilinear(g->seen[player], x, y);
+    return grid_bilinear(g, g->seen[player], x, y);
 }
 
 int game_known_city_owner(const Game *g, int player, int city) {
@@ -285,14 +380,18 @@ int game_visible_unit_count(const Game *g, int player, int owner) {
 /* ------------------------------------------------------------------ */
 
 static void update_stats(Game *g) {
-    g->cities_owned[0] = g->cities_owned[1] = 0;
-    g->units_owned[0] = g->units_owned[1] = 0;
+    for (int p = 0; p < MAX_PLAYERS; p++) {
+        g->cities_owned[p] = 0;
+        g->units_owned[p] = 0;
+    }
     for (int i = 0; i < g->ncity; i++) {
-        if (g->cities[i].owner >= 0) g->cities_owned[g->cities[i].owner]++;
+        int o = g->cities[i].owner;
+        if (o >= 0 && o < MAX_PLAYERS) g->cities_owned[o]++;
     }
     for (int i = 0; i < MAX_UNITS; i++) {
         if (g->units[i].alive) {
             int o = g->units[i].owner;
+            if (o < 0 || o >= MAX_PLAYERS) continue;
             g->units_owned[o]++;
             if (g->units_owned[o] > g->peak[o]) g->peak[o] = g->units_owned[o];
         }
@@ -313,14 +412,17 @@ void game_update(Game *g, float dt) {
     units_update(g, dt);
     update_stats(g);
     game_update_vision(g);
+    g->terr_t -= dt;
+    if (g->terr_t <= 0.0f) game_update_territory(g);
 
-    for (int p = 0; p < 2; p++) {
-        if (g->units_owned[p] == 0 && g->cities_owned[p] == 0) {
-            g->winner = 1 - p;
-            g->end_time = 0.0f;
-            g->sfx |= (uint16_t)SFX_WIN;
-            break;
-        }
+    int alive = 0, last = -1;
+    for (int p = 0; p < g->players; p++) {
+        if (g->units_owned[p] > 0 || g->cities_owned[p] > 0) { alive++; last = p; }
+    }
+    if (alive <= 1) {
+        g->winner = alive == 1 ? last : -2;
+        g->end_time = 0.0f;
+        g->sfx |= (uint16_t)SFX_WIN;
     }
 }
 
@@ -339,7 +441,7 @@ void game_click_select(Game *g, Vec2 world, int additive) {
     float best_d = 16.0f;
     for (int i = 0; i < MAX_UNITS; i++) {
         Unit *u = &g->units[i];
-        if (!u->alive || u->owner != P_BLUE) continue;
+        if (!u->alive || u->owner != g->local) continue;
         float d = vdist(u->pos, world);
         if (d < best_d) { best = i; best_d = d; }
     }
@@ -369,7 +471,7 @@ void game_box_select(Game *g, Vec2 a, Vec2 b, int additive) {
     if (!additive) memset(g->selected, 0, sizeof(g->selected));
     for (int i = 0; i < MAX_UNITS; i++) {
         Unit *u = &g->units[i];
-        if (!u->alive || u->owner != P_BLUE) continue;
+        if (!u->alive || u->owner != g->local) continue;
         if (u->pos.x >= x0 && u->pos.x <= x1 && u->pos.y >= y0 && u->pos.y <= y1)
             g->selected[i] = 1;
     }
@@ -381,7 +483,7 @@ void game_box_select(Game *g, Vec2 a, Vec2 b, int additive) {
 void game_select_all(Game *g) {
     int any = 0;
     for (int i = 0; i < MAX_UNITS; i++) {
-        g->selected[i] = g->units[i].alive && g->units[i].owner == P_BLUE;
+        g->selected[i] = g->units[i].alive && g->units[i].owner == g->local;
         any |= g->selected[i];
     }
     if (any) g->sel_city = -1;
@@ -447,8 +549,8 @@ static void order_unit(Game *g, Unit *u, const Vec2 *base, int bn, Vec2 offset) 
     int rn = build_route(g, u->pos, base, bn, route, MAX_PATH);
     if (rn <= 0) return;
     route[rn - 1] = vadd(route[rn - 1], offset);
-    route[rn - 1].x = clampf(route[rn - 1].x, UNIT_R, (float)WORLD_W - UNIT_R);
-    route[rn - 1].y = clampf(route[rn - 1].y, UNIT_R, (float)WORLD_H - UNIT_R);
+    route[rn - 1].x = clampf(route[rn - 1].x, UNIT_R, (float)g->w.width - UNIT_R);
+    route[rn - 1].y = clampf(route[rn - 1].y, UNIT_R, (float)g->w.height - UNIT_R);
     memcpy(u->path, route, sizeof(Vec2) * (size_t)rn);
     u->plen = rn;
     u->pi = 0;
@@ -458,7 +560,7 @@ void game_order_selected(Game *g, const Vec2 *pts, int n) {
     if (n <= 0) return;
     if (g->sel_city >= 0) {
         City *c = &g->cities[g->sel_city];
-        if (c->owner == P_BLUE) {
+        if (c->owner == g->local) {
             c->rally = pts[n - 1];
             c->has_rally = 1;
         }
@@ -480,7 +582,7 @@ void game_order_selected(Game *g, const Vec2 *pts, int n) {
 void game_set_city_rally(Game *g, Vec2 world) {
     if (g->sel_city < 0) return;
     City *c = &g->cities[g->sel_city];
-    if (c->owner != P_BLUE) return;
+    if (c->owner != g->local) return;
     c->rally = world;
     c->has_rally = 1;
 }
@@ -527,7 +629,7 @@ void game_order_stop(Game *g) {
 void game_fortify_city(Game *g) {
     if (g->sel_city < 0) return;
     City *c = &g->cities[g->sel_city];
-    if (c->owner != P_BLUE || c->fortified || c->fort_t > 0.0f) return;
+    if (c->owner != g->local || c->fortified || c->fort_t > 0.0f) return;
     c->fort_t = 10.0f;
     game_notice(g, "FORTIFYING CITY - 10s");
 }
@@ -535,7 +637,7 @@ void game_fortify_city(Game *g) {
 void game_set_city_production(Game *g, int type) {
     if (g->sel_city < 0 || type < 0 || type >= UT_COUNT) return;
     City *c = &g->cities[g->sel_city];
-    if (c->owner != P_BLUE) return;
+    if (c->owner != g->local) return;
     c->prod_type = (uint8_t)type;
     char buf[48];
     snprintf(buf, sizeof(buf), "CITY PRODUCING %s", UNIT_TYPE[type].name);
@@ -547,7 +649,7 @@ void game_set_city_production(Game *g, int type) {
 /* ------------------------------------------------------------------ */
 
 #define SAVE_MAGIC   0x574F4443u   /* WODC */
-#define SAVE_VERSION 5u
+#define SAVE_VERSION 6u
 
 void game_notice(Game *g, const char *text) {
     snprintf(g->notice, sizeof(g->notice), "%s", text);
@@ -568,13 +670,17 @@ int game_save(const Game *g, const char *path) {
 
 static int valid_saved_game(const Game *g) {
     if (g->ncity < 1 || g->ncity > MAX_CITIES) return 0;
-    if (g->difficulty[0] < 0 || g->difficulty[0] >= DIFF_COUNT) return 0;
-    if (g->difficulty[1] < 0 || g->difficulty[1] >= DIFF_COUNT) return 0;
-    if (g->winner < -1 || g->winner > 1) return 0;
+    if (g->players < 2 || g->players > MAX_PLAYERS) return 0;
+    if (g->local < 0 || g->local >= g->players) return 0;
+    if (g->w.cols < 1 || g->w.cols > MAX_COLS) return 0;
+    if (g->w.rows < 1 || g->w.rows > MAX_ROWS) return 0;
+    for (int p = 0; p < g->players; p++)
+        if (g->difficulty[p] < 0 || g->difficulty[p] >= DIFF_COUNT) return 0;
+    if (g->winner < -2 || g->winner >= g->players) return 0;
     if (!isfinite(g->time) || g->time < 0.0f) return 0;
     for (int i = 0; i < g->ncity; i++) {
         const City *c = &g->cities[i];
-        if (c->owner < -1 || c->owner > 1) return 0;
+        if (c->owner < -1 || c->owner >= g->players) return 0;
         if (c->prod_type >= UT_COUNT) return 0;
         if (c->fortified > 1) return 0;
         if (!isfinite(c->fort_t) || c->fort_t < 0.0f) return 0;
@@ -583,7 +689,7 @@ static int valid_saved_game(const Game *g) {
     for (int i = 0; i < MAX_UNITS; i++) {
         const Unit *u = &g->units[i];
         if (!u->alive) continue;
-        if (u->owner < 0 || u->owner > 1) return 0;
+        if (u->owner < 0 || u->owner >= g->players) return 0;
         if (u->type >= UT_COUNT || u->order >= ORD_COUNT) return 0;
         if (!isfinite(u->pos.x) || !isfinite(u->pos.y) || !isfinite(u->hp)) return 0;
     }
@@ -609,6 +715,7 @@ int game_load(Game *g, const char *path) {
     *g = tmp;
     g->menu = 0;
     g->save_available = 1;
+    g->terr_t = 0.0f;
     for (int i = 0; i < MAX_UNITS; i++) g->selected[i] = 0;
     g->nsel = 0;
     g->sel_city = -1;

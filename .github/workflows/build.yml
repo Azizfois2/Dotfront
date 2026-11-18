@@ -16,11 +16,14 @@ jobs:
       - name: Build (X11 + MIT-SHM)
         run: make
       - name: Headless simulation smoke test
-        run: ./wod_c --headless 5 --seed 3 || test $? -eq 2
+        run: |
+          for p in 2 3 4 5 6; do
+            ./wod_c --headless 5 --seed 3 --players $p || test $? -eq 2
+          done
       - name: AI resolves matches under fog
         run: |
           for s in 1 2 3 4; do
-            ./wod_c --headless 300 --seed $s > /tmp/ai_$s.txt || true
+            ./wod_c --headless 300 --seed $s --players 2 > /tmp/ai_$s.txt || true
             grep -q "WINS" /tmp/ai_$s.txt || { cat /tmp/ai_$s.txt; exit 1; }
           done
       - name: Launch under Xvfb
@@ -47,7 +50,7 @@ jobs:
       - name: Build (SDL2)
         run: make sdl
       - name: Headless simulation smoke test
-        run: ./wod_c_sdl --headless 5 --seed 3 || test $? -eq 2
+        run: ./wod_c_sdl --headless 5 --seed 3 --players 6 || test $? -eq 2
 
   windows:
     runs-on: ubuntu-latest
@@ -77,7 +80,10 @@ jobs:
       - name: Build (native Cocoa)
         run: make
       - name: Headless simulation smoke test
-        run: ./wod_c --headless 5 --seed 3 || test $? -eq 2
+        run: |
+          for p in 2 3 4 5 6; do
+            ./wod_c --headless 5 --seed 3 --players $p || test $? -eq 2
+          done
       - name: Launch the Cocoa window briefly
         run: |
           ./wod_c --seed 3 &

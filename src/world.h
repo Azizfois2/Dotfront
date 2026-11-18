@@ -3,18 +3,23 @@
 
 #include "common.h"
 
-#define MAP_CITIES 12
 #define MAP_MARGIN 70.0f
-#define MAP_CITY_SPACING 215.0f
+#define MAX_CELLS  (MAX_ROWS * MAX_COLS)
 
 typedef struct {
-    uint8_t terr[ROWS][COLS];
-    float   elev[ROWS + 1][COLS + 1];
-    float   forest[ROWS + 1][COLS + 1];
+    int      cols, rows;       /* active grid */
+    int      width, height;    /* active world size in pixels */
+    int      style;            /* MAP_* */
+    uint8_t  terr[MAX_ROWS][MAX_COLS];
+    float    elev[MAX_ROWS + 1][MAX_COLS + 1];
+    float    forest[MAX_ROWS + 1][MAX_COLS + 1];
     uint32_t seed;
 } World;
 
-void    world_generate(World *w, uint32_t seed, Vec2 *city_pos, int *out_count);
+int     world_city_target(int players);
+const char *world_style_name(int style);
+void    world_generate(World *w, uint32_t seed, int players,
+                       Vec2 *city_pos, int *out_count);
 uint8_t world_terrain_at(const World *w, float x, float y);
 float   world_elev_at(const World *w, float x, float y);
 float   world_forest_at(const World *w, float x, float y);

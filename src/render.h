@@ -8,7 +8,8 @@
 #define VIEW_PATH_MAX 64
 
 typedef struct {
-    uint32_t *terrain;   /* full world pre-render, WORLD_W x WORLD_H */
+    uint32_t *terrain;   /* full world pre-render, tw x th */
+    int tw, th;
     uint32_t *mini;      /* minimap thumbnail */
     int mw, mh;
     uint32_t *screen;    /* cached terrain+fog at screen resolution */
@@ -28,6 +29,12 @@ typedef struct {
     int   path_active;
     Vec2  path[VIEW_PATH_MAX];
     int   plen;
+    /* staged waypoints (Shift+RMB). Space sends, C clears. */
+    int   stage_active;
+    Vec2  stage[VIEW_PATH_MAX];
+    int   stage_len;
+    int   stage_marks[8];
+    int   stage_marks_n;
 } View;
 
 void render_init(Renderer *r, const Game *g);
@@ -39,10 +46,23 @@ static inline Vec2 w2s(const View *v, Vec2 w) {
     return v2((w.x - v->cam.x) * v->zoom, (w.y - v->cam.y) * v->zoom);
 }
 static inline uint32_t owner_color(int o) {
-    return o == P_BLUE ? C_BLUE : (o == P_RED ? C_RED : C_NEUTRAL);
+    static const uint32_t c[MAX_PLAYERS] = {
+        C_BLUE, C_RED, C_GREEN, C_GOLD, C_VIOLET, C_CYAN
+    };
+    return (o >= 0 && o < MAX_PLAYERS) ? c[o] : C_NEUTRAL;
 }
 static inline uint32_t owner_dark(int o) {
-    return o == P_BLUE ? C_BLUE_DARK : (o == P_RED ? C_RED_DARK : 0xFF707070);
+    static const uint32_t c[MAX_PLAYERS] = {
+        C_BLUE_DARK, C_RED_DARK, C_GREEN_DARK, C_GOLD_DARK,
+        C_VIOLET_DARK, C_CYAN_DARK
+    };
+    return (o >= 0 && o < MAX_PLAYERS) ? c[o] : 0xFF707070;
+}
+static inline const char *owner_name(int o) {
+    static const char *n[MAX_PLAYERS] = {
+        "BLUE", "RED", "GREEN", "GOLD", "VIOLET", "CYAN"
+    };
+    return (o >= 0 && o < MAX_PLAYERS) ? n[o] : "NEUTRAL";
 }
 
 #endif /* RENDER_H */

@@ -91,11 +91,15 @@ void units_update(Game *g, float dt) {
 
         if (u->flash > 0.0f) u->flash -= dt;
 
-        /* supply: heal near friendly cities, starve far from them */
+        /* supply: heal near friendly cities, starve far from them. Own
+         * territory adds a small bonus; enemy territory suppresses it. */
         float d = nearest_owned_city_dist(g, u->owner, u->pos);
         float heal = (d < SUPPLY_CLOSE) ? 5.0f
                    : (d < SUPPLY_FAR)   ? 1.5f
                                         : -1.5f;
+        int terr = game_territory_at(g, u->pos.x, u->pos.y);
+        if (terr == u->owner) heal += 1.2f;
+        else if (terr >= 0) heal -= 1.0f;
         float maxhp = u->max_hp > 0.0f ? u->max_hp : MAX_HP;
         u->hp = clampf(u->hp + heal * dt, -1.0f, maxhp);
 
@@ -167,7 +171,7 @@ void units_update(Game *g, float dt) {
     for (int i = 0; i < MAX_UNITS; i++) {
         Unit *u = &g->units[i];
         if (!u->alive) continue;
-        u->pos.x = clampf(u->pos.x, UNIT_R, (float)WORLD_W - UNIT_R);
-        u->pos.y = clampf(u->pos.y, UNIT_R, (float)WORLD_H - UNIT_R);
+        u->pos.x = clampf(u->pos.x, UNIT_R, (float)g->w.width - UNIT_R);
+        u->pos.y = clampf(u->pos.y, UNIT_R, (float)g->w.height - UNIT_R);
     }
 }

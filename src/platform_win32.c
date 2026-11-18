@@ -46,6 +46,7 @@ static PlatKey map_vk(WPARAM vk) {
     case 'G':         return PK_G;
     case 'H':         return PK_H;
     case 'X':         return PK_X;
+    case 'C':         return PK_C;
     case VK_LEFT:     return PK_LEFT;
     case VK_RIGHT:    return PK_RIGHT;
     case VK_UP:       return PK_UP;

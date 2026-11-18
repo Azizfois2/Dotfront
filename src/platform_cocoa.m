@@ -69,6 +69,7 @@ static PlatKey key_from_event(NSEvent *e) {
         case 'g':  return PK_G;
         case 'h':  return PK_H;
         case 'x':  return PK_X;
+        case 'c':  return PK_C;
         case 'f':  return PK_F;
         default:   break;
         }

@@ -6,15 +6,20 @@
 #include <math.h>
 
 /* ---- world ---------------------------------------------------------- */
-#define WORLD_W 1600
-#define WORLD_H 900
-#define CELL    20
-#define COLS    (WORLD_W / CELL)   /* 80 */
-#define ROWS    (WORLD_H / CELL)   /* 45 */
+/* Maps are sized from the player count at runtime. These are only the
+ * storage limits; every loop uses World.cols/rows and World.width/height. */
+#define MAX_WORLD_W 2400
+#define MAX_WORLD_H 1350
+#define MIN_WORLD_W 1600
+#define MIN_WORLD_H 900
+#define CELL        20
+#define MAX_COLS    (MAX_WORLD_W / CELL)   /* 120 */
+#define MAX_ROWS    (MAX_WORLD_H / CELL)   /* 67 */
 
-#define MAX_UNITS   160
-#define MAX_CITIES  16
-#define MAX_PATH    96
+#define MAX_PLAYERS  6
+#define MAX_UNITS    180
+#define MAX_CITIES   32
+#define MAX_PATH     256
 
 /* ---- rules ---------------------------------------------------------- */
 #define UNIT_R           5.0f
@@ -29,12 +34,15 @@
 #define CAPTURE_TIME     2.0f
 #define PROD_BASE        7.0f
 #define PROD_PER_UNIT    0.22f
-#define UNIT_CAP         60
+#define UNIT_CAP         60   /* upper bound; per-player cap scales with player count */
 #define SUPPLY_CLOSE     240.0f
 #define SUPPLY_FAR       620.0f
+#define TERRITORY_RADIUS 230.0f
 
 enum { T_WATER, T_PLAINS, T_FOREST, T_HILL, T_MOUNTAIN, T_COUNT };
-enum { P_BLUE = 0, P_RED = 1 };
+enum { P_BLUE = 0, P_RED = 1, P_GREEN = 2, P_GOLD = 3, P_VIOLET = 4, P_CYAN = 5 };
+enum { MAP_ISLAND = 0, MAP_ARCHIPELAGO = 1, MAP_LAKES = 2, MAP_HIGHLANDS = 3,
+       MAP_STYLE_COUNT };
 
 /* AI profiles selectable with --difficulty or 1/2/3 in the menu. */
 enum { DIFF_EASY = 0, DIFF_NORMAL = 1, DIFF_HARD = 2, DIFF_COUNT };
@@ -71,13 +79,21 @@ typedef struct { float x, y; } Vec2;
 #define C_BLUE_DARK 0xFF1E4FC4
 #define C_RED       0xFFFF4D4D
 #define C_RED_DARK  0xFFC42B2B
+#define C_GREEN     0xFF4BD46B
+#define C_GREEN_DARK 0xFF27883B
+#define C_GOLD      0xFFF2C14E
+#define C_GOLD_DARK 0xFFA87A16
+#define C_VIOLET    0xFFB678FF
+#define C_VIOLET_DARK 0xFF6E35B8
+#define C_CYAN      0xFF4BD8DA
+#define C_CYAN_DARK 0xFF1D8587
 #define C_NEUTRAL   0xFFB8B8B8
 #define C_BLACK     0xFF101014
 #define C_WHITE     0xFFF5F5F5
 #define C_CITY      0xFFF2C14E
 
 typedef struct {
-    int      owner;               /* -1 neutral, 0 blue, 1 red */
+    int      owner;               /* -1 neutral, otherwise P_* */
     Vec2     pos;
     float    hp, max_hp;
     uint8_t  type;                /* UT_* */

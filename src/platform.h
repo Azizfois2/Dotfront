@@ -12,7 +12,7 @@ typedef enum {
     PK_SPACE, PK_ESC, PK_R, PK_Q, PK_Z,
     PK_A, PK_D, PK_W, PK_S,
     PK_1, PK_2, PK_3,
-    PK_F5, PK_F9, PK_M, PK_G, PK_H, PK_X, PK_F,
+    PK_F5, PK_F9, PK_M, PK_G, PK_H, PK_X, PK_F, PK_C,
     PK_LEFT, PK_RIGHT, PK_UP, PK_DOWN,
     PK_SHIFT,
     PK_COUNT

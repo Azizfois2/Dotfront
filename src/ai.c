@@ -42,8 +42,8 @@ static void give_order(Game *g, Unit *u, Vec2 target, int slot, int order) {
     float a = (float)slot * 2.39996f;
     float r = 8.0f + (float)(slot % 4) * 8.0f;
     int last = n - 1;
-    pts[last] = v2(clampf(pts[last].x + cosf(a) * r, UNIT_R, (float)WORLD_W - UNIT_R),
-                   clampf(pts[last].y + sinf(a) * r, UNIT_R, (float)WORLD_H - UNIT_R));
+    pts[last] = v2(clampf(pts[last].x + cosf(a) * r, UNIT_R, (float)g->w.width - UNIT_R),
+                   clampf(pts[last].y + sinf(a) * r, UNIT_R, (float)g->w.height - UNIT_R));
     memcpy(u->path, pts, sizeof(Vec2) * (size_t)n);
     u->plen = n;
     u->pi = 0;
@@ -101,6 +101,11 @@ static int pick_threatened_city(const Game *g, int p, const AiProfile *pr) {
 /* Choose a city the AI has actually seen. The remembered owner is used so a
  * city that changed hands in the fog is not assumed to still be an enemy. */
 static int pick_target_city(const Game *g, int p, Vec2 from) {
+    int known_cities[MAX_PLAYERS] = { 0 };
+    for (int i = 0; i < g->ncity; i++) {
+        int o = game_known_city_owner(g, p, i);
+        if (o >= 0 && o < MAX_PLAYERS) known_cities[o]++;
+    }
     int best = -1;
     float best_score = 1e30f;
     for (int i = 0; i < g->ncity; i++) {
@@ -108,6 +113,8 @@ static int pick_target_city(const Game *g, int p, Vec2 from) {
         if (known == -2 || known == p) continue;
         float d = vdist(from, g->cities[i].pos);
         float score = d * (known < 0 ? 0.85f : 1.0f);
+        /* finish off a faction that is down to its last known city */
+        if (known >= 0 && known_cities[known] <= 1) score *= 0.62f;
         if (score < best_score) { best_score = score; best = i; }
     }
     return best;
@@ -134,8 +141,8 @@ static int pick_explore_point(const Game *g, int p, Vec2 from, Vec2 anchor, Vec2
     float dist[6];
     int nc = 0;
 
-    for (int r = 1; r < ROWS; r += 2) {
-        for (int c = 1; c < COLS; c += 2) {
+    for (int r = 1; r < g->w.rows; r += 2) {
+        for (int c = 1; c < g->w.cols; c += 2) {
             float x = ((float)c + 0.5f) * (float)CELL;
             float y = ((float)r + 0.5f) * (float)CELL;
             if (!world_walkable(&g->w, x, y)) continue;
@@ -183,7 +190,7 @@ static void choose_production(Game *g, int p, int diff) {
 /* ------------------------------------------------------------------ */
 
 void ai_update(Game *g, int p, float dt) {
-    if (g->winner >= 0 || g->paused || p < 0 || p > 1) return;
+    if (g->winner >= 0 || g->paused || p < 0 || p >= g->players) return;
     const AiProfile *pr = profile_for(g, p);
     int diff = g->difficulty[p];
     if (diff < 0 || diff >= DIFF_COUNT) diff = DIFF_NORMAL;
@@ -212,10 +219,21 @@ void ai_update(Game *g, int p, float dt) {
         }
     }
 
-    /* 2) gather a wave, then attack a remembered city or scout */
+    /* 2) gather a wave, then attack a remembered city or scout.
+     * In the endgame (most of the map owned, or an enemy down to its last
+     * known city) send every idle dot instead of trickling wave-sized groups,
+     * which is what used to leave one-city factions alive for minutes. */
     int idle = idle_units(g, p);
     int wave = pr->wave_base + pr->wave_per_city * g->cities_owned[p];
     if (wave > pr->wave_cap) wave = pr->wave_cap;
+    int enemy_cities = 0;
+    for (int i = 0; i < g->ncity; i++) {
+        int known = game_known_city_owner(g, p, i);
+        if (known >= 0 && known != p) enemy_cities++;
+    }
+    int dominant = g->cities_owned[p] * 2 >= g->ncity;
+    int at_cap = g->units_owned[p] >= game_unit_cap(g) - 2;
+    if (dominant || at_cap || (enemy_cities > 0 && enemy_cities <= 2)) wave = idle;
     g->ai_wave[p] = wave;
     if (idle < wave) return;
 

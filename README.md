@@ -3,7 +3,8 @@
 [![build](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml/badge.svg)](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml)
 
 A small single-player RTS in C, inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-) in this repository.
-You command blue dots, the computer commands red dots, and the whole match runs offline on one machine.
+You command blue dots against 2-6 offline AI factions (blue, red, green, gold, violet, cyan), and
+the whole match runs offline on one machine.
 
 No game engine, no assets, no image libraries: the game draws into a 32-bit framebuffer and a
 small platform layer presents it. Linux uses Xlib/MIT-SHM, Windows uses GDI, macOS uses native Cocoa,
@@ -14,9 +15,15 @@ platform SDK/headers.
 
 ## Features
 
-- Procedurally generated island every match (value-noise elevation + forest layer, sea border)
+- 2-6 factions with distinct colours, and an opponent-count selector on the start menu
+- Procedurally generated maps in four styles (island, archipelago, lakes, highlands); the map
+  grows with the player count (roughly five cities and 400k px² per faction, up to 2060×1160)
+- Territory grid derived from city influence: ground is faintly faction-tinted, borders are drawn
+  on the cell grid, and standing on friendly/enemy soil modifies supply healing
 - Five terrain types with real gameplay effects: plains, forest, hill, water, impassable mountain
 - Selection (click, shift-add, box select), hand-drawn movement paths, and formation offsets
+- Staged path drawing: hold Shift and right-drag to append route segments, then `SPACE` to send
+  the whole route or `C` to clear it
 - Fog of war with explored-terrain memory, terrain-scaled vision (hills see far, forests short),
   enemy units and city ownership hidden outside your sight, and a matching fogged minimap
 - Mountain-aware routing: clear path segments are kept exactly as drawn, blocked ones are
@@ -64,28 +71,36 @@ The Windows executable is `wod_c.exe`; everything else is identical.
 ./wod_c                 # Linux
 wod_c.exe               # Windows
 ./wod_c --seed 42       # reproducible map
+./wod_c --players 6     # 1 human + 5 AI factions (2-6 total)
 ./wod_c --difficulty hard
+./wod_c --spectate      # let every faction (including blue) play itself
 ```
 
-The start menu shows the seed and map size. Press `SPACE` to start, `1` / `2` / `3` to pick the AI difficulty, `F9` to continue a saved match, `R` for a new map, or `Q` to quit.
+The start menu shows the seed, city count and map style. Before starting, use `LEFT` / `RIGHT`
+to choose the number of opponents (1-5), shown as a faction-dot row. Press `SPACE` to start,
+`1` / `2` / `3` to pick the AI difficulty, `F9` to continue a saved match, `R` for a new map,
+or `Q` to quit.
 
 | Input | Action |
 | --- | --- |
 | Left click | Select a unit, shift-click to add, click a city to select it |
 | Left drag | Box-select your units |
 | Right drag | Draw a path for the selection (or a rally path for a selected city) |
+| `SHIFT` + right drag | Append a stage to the staged route; markers show each stage |
+| `SPACE` with a staged route | Send all staged waypoints as one route |
+| `C` | Clear the staged route / path preview |
 | `Z` | Select all your units |
 | `G` | Attack-move the selection to the cursor (stops to fight) |
 | `H` | Hold position (selected units stop and do not chase) |
 | `X` | Stop / cancel current orders |
-| `1` `2` `3` | With a city selected: produce scout / soldier / heavy. Otherwise: switch the red AI difficulty |
+| `1` `2` `3` | With a city selected: produce scout / soldier / heavy. Otherwise: switch the AI difficulty |
 | `F` | Fortify the selected city (10 s, pauses its production) |
 | `F5` / `F9` | Save the match / load `wod_save.bin` |
 | `M` | Toggle sound |
 | `A` `D` / `W` `S`, arrows | Pan the camera |
 | Middle drag | Pan the camera |
 | Mouse wheel | Zoom around the cursor |
-| `SPACE` | Pause / resume |
+| `SPACE` | Pause / resume (or send staged orders when a route is staged) |
 | `ESC` | Clear selection (or leave the menu) |
 | `R` | Restart with a new random map |
 | `Q` | Quit |
@@ -99,9 +114,13 @@ The start menu shows the seed and map size. Press `SPACE` to start, `1` / `2` / 
   (hills ×1.50, forest ×0.76, water ×0.86), plus 200 px around your cities and 270 px around
   fortified ones. Areas you have explored stay
   dimly visible as terrain memory, but enemy dots disappear into the fog. A city's flag and the
-  minimap keep showing the last owner you scouted; the red HUD counts only scouted cities and
-  currently visible red dots. The AI plays under the same fog: it must scout to find cities and
-  can only react to attacks it can see.
+  minimap keep showing the last owner you scouted; each rival HUD entry counts only the cities
+  and currently visible dots you have scouted. Every AI plays under the same fog: it must scout
+  to find cities and can only react to attacks it can see.
+- **Territory**: every owned city projects a 230 px influence radius. The strongest nearby city
+  owns each grid cell, so overlapping borders resolve by distance. Explored territory is tinted
+  with the owner colour and gets a drawn border along cell edges. Units on their own territory
+  gain +1.2 HP/s supply; units on enemy territory lose 1.0 HP/s.
 - **Units**: scouts are fast and see far but are fragile; soldiers are the balanced line unit;
   heavies are slow, tough, and hit hard. Each city's production choice is independent, and
   build time scales with the role.
@@ -111,18 +130,20 @@ The start menu shows the seed and map size. Press `SPACE` to start, `1` / `2` / 
   (a full uncontested capture is faster than a contested one; fortification slows it by 32 %). Ownership resets the city's
   production timer. Units inside an owned city heal; far from any owned city they lose health.
 - **Production**: each owned city spawns its chosen role every
-  `(7 + 0.22 × army_size) × role_build_time` seconds, up to 60 dots per player. New dots follow
-  the city's rally path if one was drawn.
+  `(7 + 0.22 × army_size) × role_build_time` seconds. The per-player cap scales with the match:
+  60 dots for 2 players, down to roughly 30 each in a 6-faction war. New dots follow the city's
+  rally path if one was drawn.
 - **Fortification** costs 10 s of production. A fortified city flips 32 % slower, sees farther,
   and is drawn with a gold segmented ring. It cannot be fortified twice.
 - **Save/load** stores the complete deterministic match state in `wod_save.bin`; the menu only
   offers Continue when that file is present.
-- **Win**: a player with no cities and no units loses. The match timer stops on the win screen.
+- **Win**: a faction with no cities and no units is eliminated; the last faction standing wins.
+  The match timer stops on the win screen, which lists every faction's captures/built/lost/peak.
 
 ## AI difficulty
 
-The red AI has three profiles, chosen with `--difficulty easy|normal|hard` or switched live
-with `1`, `2`, `3`:
+Every AI faction uses the same profile, chosen with `--difficulty easy|normal|hard` or switched
+live with `1`, `2`, `3`:
 
 - **Easy** decides every 1.8 s, defends with two units over a short radius, and attacks with
   larger but less frequent waves.
@@ -130,28 +151,31 @@ with `1`, `2`, `3`:
   `3 + cities`.
 - **Hard** reacts every 0.45 s, defends with six units over a wider radius, and commits up to
   ten units per wave. All profiles send limited waves (not the whole army at once) and recover
-  units from stalled paths, which keeps long matches from freezing at a chokepoint.
+  units from stalled paths, which keeps long matches from freezing at a chokepoint. Once a
+  faction owns most of the map, is at its unit cap, or has an enemy down to its last known city,
+  it sends every idle dot instead of trickling waves, so endgames actually close out.
 
 ## Headless mode
 
 ```sh
-./wod_c --headless 180 --seed 3
-./wod_c --headless 180 --seed 3 --difficulty hard
+./wod_c --headless 180 --seed 3 --players 4
+./wod_c --headless 240 --seed 3 --players 6 --difficulty hard
 ```
 
-Runs both sides as AI for up to 180 simulated seconds, printing map stats, city positions,
-periodic army summaries, and the result. `--difficulty` applies to both sides in headless mode. This is how the simulation was smoke-tested
-(`RED WINS ... blue 0 cities/0 units ...`) and is useful when tuning constants.
+Runs every faction as AI for up to the given simulated seconds, printing map style and size,
+city positions, periodic per-faction army summaries, and the result. `--difficulty` applies to
+all sides in headless mode. This is how the simulation is smoke-tested and tuned; 6-faction
+wars with one faction reduced to a last city can take several minutes to finish.
 
 ## Code layout
 
 ```
 src/common.h   tuning constants, Vec2 helpers, Unit/City types, unit table, terrain enums
-src/world.h/c  noise, island generation, terrain queries, BFS router
-src/game.h/c   match setup, city capture/production/fortification, save/load, selection, orders
+src/world.h/c  dynamic map sizing/styles, noise terrain, city placement, BFS router
+src/game.h/c   match setup, factions, capture/production/fortification, territory, save/load, orders
 src/units.c    movement, orders, separation, supply, combat, stall recovery
 src/ai.h/c     fog-aware opponent: scout, remember, defend, mass waves, attack
-src/render.h/c terrain pre-render, terrain blit, units, cities, paths, selection box
+src/render.h/c terrain pre-render, fog, territory tint/borders, units, cities, paths, selection
 src/hud.c      top bar, minimap, help, selection/production info, menu, pause/win overlays
 src/gfx.h/c    framebuffer primitives: AA discs, thick lines, triangles, text
 src/font.h/c   5x7 bitmap font
@@ -164,8 +188,10 @@ src/main.c          camera, event handling, fixed-step loop, headless mode
 ```
 
 Simulation is fixed at 60 Hz (`SIM_DT`), display syncs to the same rate. All match tuning lives
-in `src/common.h` (terrain modifiers, speeds, damage, capture time, production, supply).
-Rendering runs at 1280×720 — change `WIN_W`/`WIN_H` in `src/platform.h`.
+in `src/common.h` (terrain modifiers, speeds, damage, capture time, production, supply,
+territory radius). Runtime map storage is sized for 2400×1350; each match uses a 16:9 region
+between 1600×900 and that limit, based on the player count. Rendering runs at 1280×720 —
+change `WIN_W`/`WIN_H` in `src/platform.h`.
 
 ## Known limitations / next steps
 

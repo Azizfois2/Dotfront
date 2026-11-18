@@ -21,67 +21,75 @@ static const char *diff_name(int d) {
     return d == DIFF_EASY ? "easy" : (d == DIFF_HARD ? "hard" : "normal");
 }
 
-static int run_headless(uint32_t seed, float seconds, int diff) {
+static int run_headless(uint32_t seed, float seconds, int diff, int players) {
     Game g;
-    game_init(&g, seed);
-    g.difficulty[0] = g.difficulty[1] = diff;
-    g.ai_enabled[0] = 1;
-    g.ai_enabled[1] = 1;
+    game_init(&g, seed, players);
+    for (int p = 0; p < g.players; p++) {
+        g.difficulty[p] = diff;
+        g.ai_enabled[p] = 1;
+    }
     g.paused = 0;
 
     int tcount[T_COUNT] = {0};
-    for (int r2 = 0; r2 < ROWS; r2++)
-        for (int c2 = 0; c2 < COLS; c2++) tcount[g.w.terr[r2][c2]]++;
-    for (int ci = 0; ci < g.ncity; ci++)
-        printf("  city %2d  (%4.0f,%3.0f)  owner %d\n",
-               ci, g.cities[ci].pos.x, g.cities[ci].pos.y, g.cities[ci].owner);
-    printf("difficulty %s\n", diff_name(diff));
-    printf("seed %u: %d cities, blue cap (%.0f,%.0f) red cap (%.0f,%.0f)  "
-           "terrain water %d plains %d forest %d hill %d mountain %d\n",
-           seed, g.ncity, g.capital[0].x, g.capital[0].y,
-           g.capital[1].x, g.capital[1].y,
-           tcount[T_WATER], tcount[T_PLAINS], tcount[T_FOREST],
+    for (int r2 = 0; r2 < g.w.rows; r2++)
+        for (int c2 = 0; c2 < g.w.cols; c2++) tcount[g.w.terr[r2][c2]]++;
+    printf("difficulty %s, players %d, map %s %dx%d (%d cols x %d rows)\n",
+           diff_name(diff), g.players, world_style_name(g.w.style),
+           g.w.width, g.w.height, g.w.cols, g.w.rows);
+    printf("seed %u: %d cities  terrain water %d plains %d forest %d hill %d mountain %d\n",
+           seed, g.ncity, tcount[T_WATER], tcount[T_PLAINS], tcount[T_FOREST],
            tcount[T_HILL], tcount[T_MOUNTAIN]);
+    for (int p = 0; p < g.players; p++)
+        printf("  %s capital (%4.0f,%3.0f)  cities %d  units %d\n",
+               owner_name(p), g.capital[p].x, g.capital[p].y,
+               g.cities_owned[p], g.units_owned[p]);
 
     float t = 0.0f;
     int next_report = 15;
     while (t < seconds && g.winner < 0) {
         game_update(&g, SIM_DT);
-        ai_update(&g, 0, SIM_DT);
-        ai_update(&g, 1, SIM_DT);
+        for (int p = 0; p < g.players; p++)
+            if (g.ai_enabled[p]) ai_update(&g, p, SIM_DT);
         t += SIM_DT;
         if (t >= (float)next_report) {
-            Vec2 avg[2] = { {0,0}, {0,0} };
-            int busy[2] = {0,0}, near_city[2][MAX_CITIES];
-            memset(near_city, 0, sizeof(near_city));
+            int busy[MAX_PLAYERS] = { 0 };
             for (int i = 0; i < MAX_UNITS; i++) {
                 const Unit *u = &g.units[i];
                 if (!u->alive) continue;
-                avg[u->owner] = vadd(avg[u->owner], u->pos);
                 if (u->pi < u->plen) busy[u->owner]++;
-                for (int c = 0; c < g.ncity; c++)
-                    if (vdist(u->pos, g.cities[c].pos) < CITY_CAPTURE_R)
-                        near_city[u->owner][c]++;
             }
-            for (int p2 = 0; p2 < 2; p2++)
-                if (g.units_owned[p2]) avg[p2] = vmul(avg[p2], 1.0f / (float)g.units_owned[p2]);
-            printf("  t=%3ds  blue: %d cities %2d units (%d busy, avg %.0f,%.0f)  "
-                   "red: %d cities %2d units (%d busy, avg %.0f,%.0f)\n",
-                   (int)t, g.cities_owned[0], g.units_owned[0], busy[0], avg[0].x, avg[0].y,
-                   g.cities_owned[1], g.units_owned[1], busy[1], avg[1].x, avg[1].y);
+            printf("  t=%3ds", (int)t);
+            for (int p = 0; p < g.players; p++) {
+                printf("  %s:%dc/%du/%db", owner_name(p), g.cities_owned[p],
+                       g.units_owned[p], busy[p]);
+            }
+            printf("\n");
             for (int c = 0; c < g.ncity; c++) {
-                if (near_city[0][c] == 0 && near_city[1][c] == 0) continue;
-                printf("      city %2d owner=%2d cap=%.2f  blue_in=%d red_in=%d\n",
-                       c, g.cities[c].owner, g.cities[c].cap,
-                       near_city[0][c], near_city[1][c]);
+                const City *city = &g.cities[c];
+                int total = 0;
+                int counts[MAX_PLAYERS] = { 0 };
+                for (int i = 0; i < MAX_UNITS; i++) {
+                    const Unit *u = &g.units[i];
+                    if (!u->alive || vdist(u->pos, city->pos) >= CITY_CAPTURE_R) continue;
+                    counts[u->owner]++;
+                    total++;
+                }
+                if (total == 0) continue;
+                printf("      city %2d owner=%-2d cap=%.2f", c, city->owner,
+                       city->cap);
+                for (int p = 0; p < g.players; p++)
+                    if (counts[p]) printf("  %s=%d", owner_name(p), counts[p]);
+                printf("\n");
             }
             next_report += 15;
         }
     }
-    printf("result: %s at t=%.1fs (blue %d cities/%d units, red %d cities/%d units)\n",
-           g.winner < 0 ? "TIMEOUT" : (g.winner == 0 ? "BLUE WINS" : "RED WINS"),
-           (double)t, g.cities_owned[0], g.units_owned[0],
-           g.cities_owned[1], g.units_owned[1]);
+    if (g.winner == -2) printf("result: DRAW at t=%.1fs\n", (double)t);
+    else if (g.winner < 0) printf("result: TIMEOUT at t=%.1fs\n", (double)t);
+    else printf("result: %s WINS at t=%.1fs\n", owner_name(g.winner), (double)t);
+    for (int p = 0; p < g.players; p++)
+        printf("  %s: %d cities, %d units, %d captures\n", owner_name(p),
+               g.cities_owned[p], g.units_owned[p], g.captures[p]);
     return g.winner < 0 ? 2 : 0;
 }
 
@@ -100,14 +108,21 @@ typedef struct {
     Vec2 path[VIEW_PATH_MAX];
     int plen;
     Vec2 last_path_pt;
+    /* staged: Shift+RMB appends segments; Space sends, C clears */
+    int staging;
+    Vec2 stage[VIEW_PATH_MAX];
+    int stage_len;
+    int stage_marks[8];
+    int stage_marks_n;
+    Vec2 last_stage_pt;
     uint8_t down[PK_COUNT];
 } Input;
 
-static void clamp_camera(View *v) {
+static void clamp_camera(View *v, const Game *g) {
     float view_w = (float)v->w / v->zoom;
     float view_h = (float)v->h / v->zoom;
-    float maxx = (float)WORLD_W - view_w;
-    float maxy = (float)WORLD_H - view_h;
+    float maxx = (float)g->w.width - view_w;
+    float maxy = (float)g->w.height - view_h;
     if (maxx < 0.0f) v->cam.x = maxx * 0.5f;
     else v->cam.x = clampf(v->cam.x, 0.0f, maxx);
     if (maxy < 0.0f) v->cam.y = maxy * 0.5f;
@@ -119,20 +134,34 @@ static Vec2 mouse_world(const View *v, int mx, int my) {
 }
 
 static void reset_view(View *v, const Game *g) {
-    (void)g;
-    float fit = fmaxf((float)v->w / (float)WORLD_W, (float)v->h / (float)WORLD_H);
+    float fit = fmaxf((float)v->w / (float)g->w.width,
+                      (float)v->h / (float)g->w.height);
     v->zoom = fit * 0.90f;
-    v->cam.x = ((float)WORLD_W - (float)v->w / v->zoom) * 0.5f;
-    v->cam.y = ((float)WORLD_H - (float)v->h / v->zoom) * 0.5f;
-    clamp_camera(v);
+    v->cam.x = ((float)g->w.width - (float)v->w / v->zoom) * 0.5f;
+    v->cam.y = ((float)g->w.height - (float)v->h / v->zoom) * 0.5f;
+    clamp_camera(v, g);
 }
 
 static void apply_path(Game *g, Input *in) {
     if (in->plen <= 0) return;
     if (g->nsel > 0) game_order_selected(g, in->path, in->plen);
-    else if (g->sel_city >= 0 && g->cities[g->sel_city].owner == P_BLUE)
+    else if (g->sel_city >= 0 && g->cities[g->sel_city].owner == g->local)
         game_set_city_rally(g, in->path[in->plen - 1]);
     in->plen = 0;
+}
+
+static void clear_stage(Input *in) {
+    in->stage_len = 0;
+    in->stage_marks_n = 0;
+    in->staging = 0;
+}
+
+static void submit_stage(Game *g, Input *in) {
+    if (in->stage_len <= 0) return;
+    if (g->nsel > 0) game_order_selected(g, in->stage, in->stage_len);
+    else if (g->sel_city >= 0 && g->cities[g->sel_city].owner == g->local)
+        game_set_city_rally(g, in->stage[in->stage_len - 1]);
+    clear_stage(in);
 }
 
 static void reset_after_load(Game *g, View *v, Renderer *r, Input *in) {
@@ -141,16 +170,17 @@ static void reset_after_load(Game *g, View *v, Renderer *r, Input *in) {
     reset_view(v, g);
     in->plen = 0;
     in->path_active = 0;
+    clear_stage(in);
     in->dragging_box = 0;
     in->left_down = in->right_down = in->middle_down = 0;
 }
 
 static void new_match(Game *g, View *v, Renderer *r, Input *in,
-                      uint32_t *seed, int *ai_diff) {
+                      uint32_t *seed, int *ai_diff, int players) {
     uint32_t s = (*seed) * 1664525u + 1013904223u;
     *seed = s;
-    game_init(g, s);
-    g->difficulty[P_RED] = *ai_diff;
+    game_init(g, s, players);
+    for (int p = 1; p < g->players; p++) g->difficulty[p] = *ai_diff;
     g->save_available = (uint8_t)game_save_exists(SAVE_PATH);
     reset_after_load(g, v, r, in);
     g->menu = 1;
@@ -172,7 +202,8 @@ static void play_sfx(Game *g, Platform *plat, double now) {
 }
 
 static void handle_key(Game *g, View *v, Renderer *r, Input *in,
-                       PlatKey key, uint32_t *seed, int *running, int *ai_diff) {
+                       PlatKey key, uint32_t *seed, int *running, int *ai_diff,
+                       int *players) {
     switch (key) {
     case PK_ESC:
         if (g->menu) *running = 0;
@@ -186,9 +217,33 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
             g->menu = 0;
             g->paused = 0;
             g->sfx |= (uint16_t)SFX_UI;
+        } else if (g->winner < 0 && in->stage_len > 0) {
+            submit_stage(g, in);
+            g->sfx |= (uint16_t)SFX_ORDER;
+            game_notice(g, "STAGED ORDERS SENT");
         } else if (g->winner < 0) {
             g->paused = !g->paused;
             g->sfx |= (uint16_t)SFX_UI;
+        }
+        break;
+    case PK_C:
+        if (!g->menu) {
+            clear_stage(in);
+            in->plen = 0;
+            in->path_active = 0;
+            game_notice(g, "STAGED PATH CLEARED");
+        }
+        break;
+    case PK_LEFT:
+    case PK_RIGHT:
+        if (g->menu) {
+            int n = *players + (key == PK_RIGHT ? 1 : -1);
+            if (n < 2) n = MAX_PLAYERS;
+            if (n > MAX_PLAYERS) n = 2;
+            *players = n;
+            new_match(g, v, r, in, seed, ai_diff, *players);
+            printf("new game, %d factions, seed %u, map %s\n",
+                   *players, *seed, world_style_name(g->w.style));
         }
         break;
     case PK_1:
@@ -196,15 +251,16 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
     case PK_3:
         if (g->menu) {
             *ai_diff = (int)key - (int)PK_1;
-            g->difficulty[P_RED] = *ai_diff;
+            for (int p = 1; p < g->players; p++) g->difficulty[p] = *ai_diff;
         } else {
             game_set_city_production(g, (int)key - (int)PK_1);
             g->sfx |= (uint16_t)SFX_UI;
         }
         break;
     case PK_R:
-        new_match(g, v, r, in, seed, ai_diff);
-        printf("new game, seed %u, AI %s\n", *seed, diff_name(*ai_diff));
+        new_match(g, v, r, in, seed, ai_diff, *players);
+        printf("new game, %d factions, seed %u, map %s, AI %s\n",
+               *players, *seed, world_style_name(g->w.style), diff_name(*ai_diff));
         break;
     case PK_M:
         g->sound_on = !g->sound_on;
@@ -224,7 +280,8 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
         break;
     case PK_F9:
         if (game_load(g, SAVE_PATH)) {
-            *ai_diff = g->difficulty[P_RED];
+            *ai_diff = g->difficulty[1];
+            *players = g->players;
             reset_after_load(g, v, r, in);
             g->sfx |= (uint16_t)SFX_UI;
         } else {
@@ -268,9 +325,17 @@ int main(int argc, char **argv) {
     uint32_t seed = (uint32_t)time(NULL);
     float headless = 0.0f;
     int ai_diff = DIFF_NORMAL;
+    int players = 4;
+    int spectate = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "--headless") && i + 1 < argc) headless = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--players") && i + 1 < argc) {
+            players = (int)strtol(argv[++i], NULL, 10);
+            if (players < 2) players = 2;
+            if (players > MAX_PLAYERS) players = MAX_PLAYERS;
+        }
+        else if (!strcmp(argv[i], "--spectate")) spectate = 1;
         else if (!strcmp(argv[i], "--difficulty") && i + 1 < argc) {
             const char *d = argv[++i];
             if (!strcmp(d, "easy")) ai_diff = DIFF_EASY;
@@ -281,14 +346,17 @@ int main(int argc, char **argv) {
                 return 2;
             }
         } else if (!strcmp(argv[i], "--help")) {
-            printf("usage: %s [--seed N] [--headless SECONDS] [--difficulty easy|normal|hard]\n"
-                   "  default        play blue vs the offline red AI\n"
+            printf("usage: %s [--seed N] [--players 2-6] [--headless SECONDS] "
+                   "[--difficulty easy|normal|hard]\n"
+                   "  default        play blue against 2-6 offline AI factions\n"
+                   "  --players N    factions in the match (default 4)\n"
                    "  --headless N   run AI vs AI for N simulated seconds\n"
-                   "  --difficulty   red AI profile (also 1/2/3 in game)\n", argv[0]);
+                   "  --spectate     let the AI play blue too, then watch\n"
+                   "  --difficulty   AI profile (also 1/2/3 in the menu)\n", argv[0]);
             return 0;
         }
     }
-    if (headless > 0.0f) return run_headless(seed, headless, ai_diff);
+    if (headless > 0.0f) return run_headless(seed, headless, ai_diff, players);
 
     Platform *plat = plat_open("WAR OF DOTS - C", WIN_W, WIN_H);
     if (!plat) {
@@ -298,11 +366,17 @@ int main(int argc, char **argv) {
     FB fb = { .w = WIN_W, .h = WIN_H, .px = plat_pixels(plat) };
 
     Game g;
-    game_init(&g, seed);
-    g.ai_enabled[1] = 1;
-    g.difficulty[P_RED] = ai_diff;
+    game_init(&g, seed, players);
+    for (int p = 1; p < g.players; p++) g.difficulty[p] = ai_diff;
     g.save_available = (uint8_t)game_save_exists(SAVE_PATH);
-    printf("WAR OF DOTS (C) - seed %u, %d cities, AI %s\n", seed, g.ncity, diff_name(ai_diff));
+    if (spectate) {
+        g.ai_enabled[0] = 1;
+        g.menu = 0;
+        g.paused = 0;
+    }
+    printf("WAR OF DOTS (C) - seed %u, %d factions, %s %dx%d, %d cities, AI %s%s\n",
+           seed, g.players, world_style_name(g.w.style), g.w.width, g.w.height,
+           g.ncity, diff_name(ai_diff), spectate ? ", spectating" : "");
 
     Renderer r;
     render_init(&r, &g);
@@ -326,7 +400,8 @@ int main(int argc, char **argv) {
                 if (ev.key > PK_NONE && ev.key < PK_COUNT && !in.down[ev.key]) {
                     in.down[ev.key] = 1;
                     if (ev.key == PK_SHIFT) in.shift_down = 1;
-                    else handle_key(&g, &v, &r, &in, ev.key, &seed, &running, &ai_diff);
+                    else handle_key(&g, &v, &r, &in, ev.key, &seed, &running,
+                                    &ai_diff, &players);
                 }
                 break;
             case PEV_KEYUP:
@@ -344,8 +419,15 @@ int main(int argc, char **argv) {
                     in.dragging_box = 0;
                 } else if (ev.button == 3) {
                     in.right_down = 1;
-                    if (g.nsel > 0 ||
-                        (g.sel_city >= 0 && g.cities[g.sel_city].owner == P_BLUE)) {
+                    int can_order = g.nsel > 0 ||
+                        (g.sel_city >= 0 && g.cities[g.sel_city].owner == g.local);
+                    if (can_order && in.shift_down && in.stage_len < VIEW_PATH_MAX) {
+                        in.staging = 1;
+                        Vec2 w = mouse_world(&v, mx, my);
+                        in.last_stage_pt = w;
+                        in.stage[in.stage_len++] = w;
+                    } else if (can_order) {
+                        clear_stage(&in);
                         in.path_active = 1;
                         in.plen = 0;
                         in.path[in.plen++] = mouse_world(&v, mx, my);
@@ -372,7 +454,18 @@ int main(int argc, char **argv) {
                     in.left_down = 0;
                     in.dragging_box = 0;
                 } else if (ev.button == 3) {
-                    if (in.path_active) {
+                    if (in.staging) {
+                        Vec2 w = mouse_world(&v, mx, my);
+                        if (in.stage_len < VIEW_PATH_MAX &&
+                            (in.stage_len == 0 ||
+                             vdist(w, in.stage[in.stage_len - 1]) > 4.0f))
+                            in.stage[in.stage_len++] = w;
+                        if (in.stage_marks_n < 8 && in.stage_len > 0)
+                            in.stage_marks[in.stage_marks_n++] = in.stage_len - 1;
+                        in.staging = 0;
+                        game_notice(&g, "STAGE SET - SPACE SEND, C CLEAR");
+                        g.sfx |= (uint16_t)SFX_UI;
+                    } else if (in.path_active) {
                         apply_path(&g, &in);
                         g.sfx |= (uint16_t)SFX_ORDER;
                         in.path_active = 0;
@@ -393,13 +486,20 @@ int main(int argc, char **argv) {
                 if (in.middle_down) {
                     v.cam.x -= (float)(mx - in.last_mx) / v.zoom;
                     v.cam.y -= (float)(my - in.last_my) / v.zoom;
-                    clamp_camera(&v);
+                    clamp_camera(&v, &g);
                 }
                 if (in.path_active && in.plen < VIEW_PATH_MAX) {
                     Vec2 w = mouse_world(&v, mx, my);
                     if (vdist(w, in.last_path_pt) > 16.0f) {
                         in.path[in.plen++] = w;
                         in.last_path_pt = w;
+                    }
+                }
+                if (in.staging && in.stage_len < VIEW_PATH_MAX) {
+                    Vec2 w = mouse_world(&v, mx, my);
+                    if (vdist(w, in.last_stage_pt) > 16.0f) {
+                        in.stage[in.stage_len++] = w;
+                        in.last_stage_pt = w;
                     }
                 }
                 in.last_mx = mx;
@@ -419,7 +519,7 @@ int main(int argc, char **argv) {
                 v.zoom = nz;
                 v.cam.x = w.x - (float)ev.x / nz;
                 v.cam.y = w.y - (float)ev.y / nz;
-                clamp_camera(&v);
+                clamp_camera(&v, &g);
                 break;
             }
             default:
@@ -446,9 +546,10 @@ int main(int argc, char **argv) {
         /* A is also "select all"; camera pan only while held is fine, but avoid
          * panning on a quick tap: only pan if the key is still down next frames. */
 
-        clamp_camera(&v);
+        clamp_camera(&v, &g);
         game_update(&g, dt);
-        if (g.ai_enabled[1]) ai_update(&g, 1, dt);
+        for (int p = 0; p < g.players; p++)
+            if (g.ai_enabled[p]) ai_update(&g, p, dt);
 
         play_sfx(&g, plat, t);
 
@@ -460,6 +561,11 @@ int main(int argc, char **argv) {
         v.path_active = in.path_active;
         v.plen = in.plen;
         memcpy(v.path, in.path, sizeof(Vec2) * (size_t)in.plen);
+        v.stage_active = in.staging;
+        v.stage_len = in.stage_len;
+        v.stage_marks_n = in.stage_marks_n;
+        memcpy(v.stage, in.stage, sizeof(Vec2) * (size_t)in.stage_len);
+        memcpy(v.stage_marks, in.stage_marks, sizeof(int) * (size_t)in.stage_marks_n);
 
         fb.px = plat_pixels(plat);
         render_world(&fb, &g, &r, &v);

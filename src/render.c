@@ -50,10 +50,12 @@ static uint32_t terrain_pixel(const World *w, float x, float y) {
 
 void render_init(Renderer *r, const Game *g) {
     memset(r, 0, sizeof(*r));
-    r->terrain = malloc((size_t)WORLD_W * WORLD_H * sizeof(uint32_t));
-    for (int y = 0; y < WORLD_H; y++) {
-        for (int x = 0; x < WORLD_W; x++) {
-            r->terrain[y * WORLD_W + x] =
+    r->tw = g->w.width;
+    r->th = g->w.height;
+    r->terrain = malloc((size_t)r->tw * r->th * sizeof(uint32_t));
+    for (int y = 0; y < r->th; y++) {
+        for (int x = 0; x < r->tw; x++) {
+            r->terrain[y * r->tw + x] =
                 terrain_pixel(&g->w, (float)x + 0.5f, (float)y + 0.5f);
         }
     }
@@ -63,9 +65,9 @@ void render_init(Renderer *r, const Game *g) {
     r->mini = malloc((size_t)r->mw * r->mh * sizeof(uint32_t));
     for (int y = 0; y < r->mh; y++) {
         for (int x = 0; x < r->mw; x++) {
-            int sx = x * WORLD_W / r->mw;
-            int sy = y * WORLD_H / r->mh;
-            uint32_t c = r->terrain[sy * WORLD_W + sx];
+            int sx = x * r->tw / r->mw;
+            int sy = y * r->th / r->mh;
+            uint32_t c = r->terrain[sy * r->tw + sx];
             r->mini[y * r->mw + x] = scale_color(c, 0.88f);
         }
     }
@@ -82,13 +84,14 @@ void render_free(Renderer *r) {
 /* Terrain blit (bilinear, screen-space)                               */
 /* ------------------------------------------------------------------ */
 
-static uint8_t fog_cells[ROWS][COLS];
+static uint8_t fog_cells[MAX_ROWS][MAX_COLS];
 
 static void build_fog_cells(const Game *g) {
-    for (int r = 0; r < ROWS; r++) {
-        for (int c = 0; c < COLS; c++) {
-            float vis = (float)g->vis[P_BLUE][r][c] / 255.0f;
-            float seen = (float)g->seen[P_BLUE][r][c] / 255.0f;
+    int p = g->local;
+    for (int r = 0; r < g->w.rows; r++) {
+        for (int c = 0; c < g->w.cols; c++) {
+            float vis = (float)g->vis[p][r][c] / 255.0f;
+            float seen = (float)g->seen[p][r][c] / 255.0f;
             float fog = (1.0f - seen) * 0.88f + seen * (1.0f - vis) * 0.58f;
             fog_cells[r][c] = (uint8_t)(clampf(fog, 0.0f, 1.0f) * 255.0f);
         }
@@ -107,18 +110,18 @@ static void blit_terrain(FB *fb, const Game *g, const Renderer *r, const View *v
         int iy = gyfp >> 16;
         int fyi = (gyfp >> 8) & 255;
         if (iy < 0) { iy = 0; fyi = 0; }
-        if (iy > ROWS - 2) { iy = ROWS - 2; fyi = 255; }
+        if (iy > g->w.rows - 2) { iy = g->w.rows - 2; fyi = 255; }
         int32_t gxrow = gxfp;
-        if (wy < 0.0f || wy >= (float)WORLD_H) { gyfp += dyfp; continue; }
+        if (wy < 0.0f || wy >= (float)g->w.height) { gyfp += dyfp; continue; }
         int y0 = (int)wy;
-        if (y0 > WORLD_H - 1) y0 = WORLD_H - 1;
+        if (y0 > g->w.height - 1) y0 = g->w.height - 1;
         uint32_t *row = &fb->px[sy * fb->w];
         for (int sx = 0; sx < fb->w; sx++, gxrow += dxfp) {
             float wx = v->cam.x + (float)sx * inv;
-            if (wx < 0.0f || wx >= (float)WORLD_W) continue;
+            if (wx < 0.0f || wx >= (float)g->w.width) continue;
             int x0 = (int)wx;
-            if (x0 > WORLD_W - 1) x0 = WORLD_W - 1;
-            uint32_t c = r->terrain[y0 * WORLD_W + x0];
+            if (x0 > g->w.width - 1) x0 = g->w.width - 1;
+            uint32_t c = r->terrain[y0 * r->tw + x0];
             uint32_t rr = (c >> 16) & 255;
             uint32_t gg = (c >> 8) & 255;
             uint32_t bb = c & 255;
@@ -126,7 +129,16 @@ static void blit_terrain(FB *fb, const Game *g, const Renderer *r, const View *v
             int ix = gxrow >> 16;
             int fxi = (gxrow >> 8) & 255;
             if (ix < 0) { ix = 0; fxi = 0; }
-            if (ix > COLS - 2) { ix = COLS - 2; fxi = 255; }
+            if (ix > g->w.cols - 2) { ix = g->w.cols - 2; fxi = 255; }
+            /* nearby territory gets a faint faction tint, so ownership is
+             * readable even before the border line is noticed */
+            int town = g->terr_owner[iy][ix];
+            if (town >= 0 && g->seen[g->local][iy][ix] > 40) {
+                uint32_t oc = owner_color(town);
+                rr = (rr * 86u + ((oc >> 16) & 255u) * 14u) / 100u;
+                gg = (gg * 86u + ((oc >> 8) & 255u) * 14u) / 100u;
+                bb = (bb * 86u + (oc & 255u) * 14u) / 100u;
+            }
             int f00 = fog_cells[iy][ix], f10 = fog_cells[iy][ix + 1];
             int f01 = fog_cells[iy + 1][ix], f11 = fog_cells[iy + 1][ix + 1];
             int ft = f00 + (((f10 - f00) * fxi) >> 8);
@@ -164,6 +176,50 @@ static void draw_path(FB *fb, const View *v, const Vec2 *pts, int n,
     }
 }
 
+/* Territory edges are derived from the per-cell owner grid. Only edges the
+ * local faction has explored are drawn, so borders obey fog of war. */
+static void draw_borders(FB *fb, const Game *g, const View *v) {
+    int c0 = (int)floorf(v->cam.x / CELL) - 1;
+    int r0 = (int)floorf(v->cam.y / CELL) - 1;
+    int c1 = (int)ceilf((v->cam.x + (float)fb->w / v->zoom) / CELL) + 1;
+    int r1 = (int)ceilf((v->cam.y + (float)fb->h / v->zoom) / CELL) + 1;
+    if (c0 < 0) c0 = 0;
+    if (r0 < 0) r0 = 0;
+    if (c1 > g->w.cols) c1 = g->w.cols;
+    if (r1 > g->w.rows) r1 = g->w.rows;
+    float thick = fmaxf(2.0f, 3.0f * v->zoom);
+    for (int r = r0; r < r1; r++) {
+        for (int c = c0; c < c1; c++) {
+            if (g->seen[g->local][r][c] < 55) continue;
+            int o = g->terr_owner[r][c];
+            if (c + 1 < g->w.cols) {
+                int q = g->terr_owner[r][c + 1];
+                if (o != q && (o >= 0 || q >= 0)) {
+                    int own = o >= 0 ? o : q;
+                    uint32_t col = scale_color(owner_color(own),
+                                               (o >= 0 && q >= 0) ? 1.0f : 0.82f);
+                    Vec2 a = w2s(v, v2((float)(c + 1) * CELL, (float)r * CELL));
+                    Vec2 b = w2s(v, v2((float)(c + 1) * CELL, (float)(r + 1) * CELL));
+                    gfx_line(fb, a.x, a.y, b.x, b.y, thick + 1.4f, 0xFF0A0F15);
+                    gfx_line(fb, a.x, a.y, b.x, b.y, thick, col);
+                }
+            }
+            if (r + 1 < g->w.rows) {
+                int q = g->terr_owner[r + 1][c];
+                if (o != q && (o >= 0 || q >= 0)) {
+                    int own = o >= 0 ? o : q;
+                    uint32_t col = scale_color(owner_color(own),
+                                               (o >= 0 && q >= 0) ? 1.0f : 0.82f);
+                    Vec2 a = w2s(v, v2((float)c * CELL, (float)(r + 1) * CELL));
+                    Vec2 b = w2s(v, v2((float)(c + 1) * CELL, (float)(r + 1) * CELL));
+                    gfx_line(fb, a.x, a.y, b.x, b.y, thick + 1.4f, 0xFF0A0F15);
+                    gfx_line(fb, a.x, a.y, b.x, b.y, thick, col);
+                }
+            }
+        }
+    }
+}
+
 static void draw_city(FB *fb, const Game *g, const View *v, int idx) {
     const City *c = &g->cities[idx];
     Vec2 s = w2s(v, c->pos);
@@ -171,14 +227,14 @@ static void draw_city(FB *fb, const Game *g, const View *v, int idx) {
     float r = CITY_R * z;
     if (s.x < -140.0f * z || s.y < -140.0f * z ||
         s.x > (float)fb->w + 140.0f * z || s.y > (float)fb->h + 140.0f * z) return;
-    if (game_seen_at(g, P_BLUE, c->pos.x, c->pos.y) < 0.05f) return;
+    if (game_seen_at(g, g->local, c->pos.x, c->pos.y) < 0.05f) return;
 
     /* current owner only while the city is actually in sight; otherwise show
      * the last owner the player scouted (or neutral if never scouted). */
     int shown_owner = c->owner;
-    float vis = game_visibility_at(g, P_BLUE, c->pos.x, c->pos.y);
+    float vis = game_visibility_at(g, g->local, c->pos.x, c->pos.y);
     if (vis < 0.18f) {
-        shown_owner = game_known_city_owner(g, P_BLUE, idx);
+        shown_owner = game_known_city_owner(g, g->local, idx);
         if (shown_owner < 0) shown_owner = -1;
     }
 
@@ -242,8 +298,8 @@ static int unit_in_combat(const Game *g, const Unit *u) {
 static void draw_unit(FB *fb, const Game *g, const View *v, int idx) {
     const Unit *u = &g->units[idx];
     if (!u->alive) return;
-    if (u->owner != P_BLUE &&
-        game_visibility_at(g, P_BLUE, u->pos.x, u->pos.y) < 0.30f) return;
+    if (u->owner != g->local &&
+        game_visibility_at(g, g->local, u->pos.x, u->pos.y) < 0.30f) return;
     float z = v->zoom;
     Vec2 pos = u->pos;
     if (unit_in_combat(g, u)) {
@@ -309,16 +365,18 @@ void render_world(FB *fb, const Game *g, Renderer *r, const View *v) {
 
     /* city auras are drawn by draw_city */
 
+    draw_borders(fb, g, v);
+
     /* own paths + rally lines (never reveal the opponent's intent) */
     for (int i = 0; i < MAX_UNITS; i++) {
         const Unit *u = &g->units[i];
-        if (!u->alive || u->owner != P_BLUE || u->pi >= u->plen) continue;
+        if (!u->alive || u->owner != g->local || u->pi >= u->plen) continue;
         draw_path(fb, v, &u->path[u->pi], u->plen - u->pi,
                   owner_color(u->owner), 70, fmaxf(1.2f, 1.6f * v->zoom));
     }
     for (int i = 0; i < g->ncity; i++) {
         const City *c = &g->cities[i];
-        if (c->owner != P_BLUE || !c->has_rally) continue;
+        if (c->owner != g->local || !c->has_rally) continue;
         Vec2 s = w2s(v, c->pos), e = w2s(v, c->rally);
         gfx_line(fb, s.x, s.y, e.x, e.y, fmaxf(1.0f, 1.5f * v->zoom), 0xFF7FB2FF);
         gfx_ring(fb, e.x, e.y, 5.0f, 1.5f, 0xFF7FB2FF);
@@ -326,6 +384,19 @@ void render_world(FB *fb, const Game *g, Renderer *r, const View *v) {
 
     for (int i = 0; i < g->ncity; i++) draw_city(fb, g, v, i);
     for (int i = 0; i < MAX_UNITS; i++) draw_unit(fb, g, v, i);
+
+    /* staged waypoints: draw each committed stage and its marker */
+    if (v->stage_len > 1) {
+        draw_path(fb, v, v->stage, v->stage_len, C_GOLD, 150, fmaxf(1.2f, 1.7f * v->zoom));
+        for (int i = 0; i < v->stage_marks_n; i++) {
+            int m = v->stage_marks[i];
+            if (m <= 0 || m >= v->stage_len) continue;
+            Vec2 p = w2s(v, v->stage[m]);
+            gfx_ring(fb, p.x, p.y, 6.0f, 1.5f, C_GOLD);
+        }
+        Vec2 s = w2s(v, v->stage[0]), e = w2s(v, v->stage[v->stage_len - 1]);
+        gfx_line(fb, s.x, s.y, e.x, e.y, 1.0f, 0x66F2C14E);
+    }
 
     /* active path preview */
     if (v->path_active && v->plen > 0) {
