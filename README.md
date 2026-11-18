@@ -1,5 +1,7 @@
 # War of Dots — offline C edition
 
+[![build](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml/badge.svg)](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml)
+
 A small single-player RTS in C, inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-) in this repository.
 You command blue dots, the computer commands red dots, and the whole match runs offline on one machine.
 

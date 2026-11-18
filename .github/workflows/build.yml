@@ -1,0 +1,52 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-x11:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install X11 headers
+        run: sudo apt-get update && sudo apt-get install -y build-essential libx11-dev libxext-dev
+      - name: Build (X11 + MIT-SHM)
+        run: make
+      - name: Headless simulation smoke test
+        run: ./wod_c --headless 5 --seed 3 || test $? -eq 2
+
+  linux-sdl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - name: Build (SDL2)
+        run: make sdl
+      - name: Headless simulation smoke test
+        run: ./wod_c_sdl --headless 5 --seed 3 || test $? -eq 2
+
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - name: Cross-compile Windows .exe
+        run: make windows
+      - name: Check the executable
+        run: file wod_c.exe && test -s wod_c.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: cc --version
+      - name: Build (native Cocoa)
+        run: make
+      - name: Headless simulation smoke test
+        run: ./wod_c --headless 5 --seed 3 || test $? -eq 2
