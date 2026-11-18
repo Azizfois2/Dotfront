@@ -8,7 +8,7 @@ LDFLAGS ?=
 LIBS     = -lX11 -lXext -lm
 
 CORE    = src/main.c src/gfx.c src/font.c src/world.c src/game.c src/units.c \
-          src/ai.c src/render.c src/hud.c
+          src/ai.c src/render.c src/hud.c src/net.c
 SRC = $(CORE) src/platform_x11.c
 OBJ = $(SRC:.c=.o)
 DEP = $(OBJ:.o=.d)
@@ -60,6 +60,6 @@ macos-sdl:
 # Native Windows build (no SDL, no X11): Win32 GDI + DIB presentation.
 windows:
 	$(MINGW) $(CFLAGS) $(CORE) src/platform_win32.c -o wod_c.exe \
-	    $(LDFLAGS) -lgdi32 -luser32 -lwinmm -lm -mwindows
+	    $(LDFLAGS) -lgdi32 -luser32 -lwinmm -lws2_32 -lm -mwindows
 
 .PHONY: all clean run windows sdl macos macos-sdl

@@ -40,6 +40,21 @@ jobs:
             fi
             kill "$pid"
           '
+      - name: LAN handshake under Xvfb
+        run: |
+          xvfb-run -a bash -c '
+            ./wod_c --host 47888 --players 3 --seed 3 > /tmp/lan_host.log 2>&1 &
+            hpid=$!
+            sleep 1
+            ./wod_c --join 127.0.0.1:47888 > /tmp/lan_client.log 2>&1 &
+            cpid=$!
+            sleep 3
+            kill -0 "$hpid" || { cat /tmp/lan_host.log; exit 1; }
+            kill -0 "$cpid" || { cat /tmp/lan_client.log; exit 1; }
+            grep -q "client joined as RED" /tmp/lan_host.log || {
+              cat /tmp/lan_host.log; cat /tmp/lan_client.log; exit 1; }
+            kill "$hpid" "$cpid"
+          '
 
   linux-sdl:
     runs-on: ubuntu-latest

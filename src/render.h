@@ -37,6 +37,7 @@ typedef struct {
     int   stage_marks_n;
     int   show_help;     /* tutorial / controls overlay */
     int   help_was_paused;
+    char  net_status[96];  /* LAN host/client badge, empty when offline */
 } View;
 
 void render_init(Renderer *r, const Game *g);

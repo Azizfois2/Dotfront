@@ -765,3 +765,93 @@ int game_save_exists(const char *path) {
     fclose(f);
     return 1;
 }
+
+/* ------------------------------------------------------------------ */
+/* Network commands                                                    */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    int local, sel_city, nsel;
+    uint8_t selected[MAX_UNITS];
+} RemoteSave;
+
+static void remote_begin(Game *g, RemoteSave *s, int owner,
+                         const uint8_t *ids, int nids) {
+    s->local = g->local;
+    s->sel_city = g->sel_city;
+    s->nsel = g->nsel;
+    memcpy(s->selected, g->selected, sizeof(s->selected));
+    memset(g->selected, 0, sizeof(g->selected));
+    g->local = owner;
+    g->sel_city = -1;
+    g->nsel = 0;
+    for (int k = 0; k < nids; k++) {
+        int i = ids[k];
+        if (i < 0 || i >= MAX_UNITS) continue;
+        if (!g->units[i].alive || g->units[i].owner != owner) continue;
+        g->selected[i] = 1;
+        g->nsel++;
+    }
+}
+
+static void remote_end(Game *g, const RemoteSave *s) {
+    g->local = s->local;
+    g->sel_city = s->sel_city;
+    g->nsel = s->nsel;
+    memcpy(g->selected, s->selected, sizeof(g->selected));
+}
+
+void game_remote_order(Game *g, int owner, const uint8_t *ids, int nids,
+                       const Vec2 *pts, int npts) {
+    if (npts <= 0 || nids <= 0) return;
+    RemoteSave s;
+    remote_begin(g, &s, owner, ids, nids);
+    game_order_selected(g, pts, npts);
+    remote_end(g, &s);
+}
+
+void game_remote_attack_move(Game *g, int owner, const uint8_t *ids, int nids,
+                             Vec2 target) {
+    if (nids <= 0) return;
+    RemoteSave s;
+    remote_begin(g, &s, owner, ids, nids);
+    game_order_attack_move(g, target);
+    remote_end(g, &s);
+}
+
+void game_remote_hold(Game *g, int owner, const uint8_t *ids, int nids) {
+    if (nids <= 0) return;
+    RemoteSave s;
+    remote_begin(g, &s, owner, ids, nids);
+    game_order_hold(g);
+    remote_end(g, &s);
+}
+
+void game_remote_stop(Game *g, int owner, const uint8_t *ids, int nids) {
+    if (nids <= 0) return;
+    RemoteSave s;
+    remote_begin(g, &s, owner, ids, nids);
+    game_order_stop(g);
+    remote_end(g, &s);
+}
+
+void game_remote_city(Game *g, int owner, int city, int action, int type,
+                      Vec2 point) {
+    if (city < 0 || city >= g->ncity) return;
+    if (g->cities[city].owner != owner) return;
+    RemoteSave s;
+    int old_local = g->local, old_city = g->sel_city;
+    g->local = owner;
+    g->sel_city = city;
+    switch (action) {
+    case GAME_CITY_PRODUCE: game_set_city_production(g, type); break;
+    case GAME_CITY_QUEUE:   game_queue_city_production(g, type); break;
+    case GAME_CITY_FORTIFY: game_fortify_city(g); break;
+    case GAME_CITY_RALLY:   game_set_city_rally(g, point); break;
+    default: break;
+    }
+    g->local = old_local;
+    g->sel_city = old_city;
+    /* remote_begin is not used here, so keep the local selection untouched */
+    (void)s;
+}

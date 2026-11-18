@@ -189,7 +189,7 @@ static void draw_selection_info(FB *fb, const Game *g) {
     gfx_text(fb, 18, y, buf, 2, 0xFFCFE3F5);
 }
 
-static void draw_help(FB *fb, const Game *g) {
+static void draw_help(FB *fb, const Game *g, const View *v) {
     int h = 24;
     int y = fb->h - h;
     gfx_fill_a(fb, 0, y, fb->w, h, 0xFF080B10, 200);
@@ -201,9 +201,14 @@ static void draw_help(FB *fb, const Game *g) {
           "CTRL+1-6 GROUP   1-6 RECALL   T HELP   MINIMAP LMB JUMP / RMB ORDER   "
           "F5/F9 SAVE/LOAD   M SOUND   R NEW   ARROWS PAN   WHEEL ZOOM";
     gfx_text(fb, 12, y + 8, help, 1, 0xFF8C9AAB);
+    if (v->net_status[0]) {
+        int w = font_text_width(v->net_status, 1) + 18;
+        gfx_fill_a(fb, 0, y - 20, w, 20, 0xFF080B10, 220);
+        gfx_text(fb, 9, y - 15, v->net_status, 1, 0xFF7FD8C8);
+    }
 }
 
-static void draw_menu(FB *fb, const Game *g) {
+static void draw_menu(FB *fb, const Game *g, const View *v) {
     gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 205);
     int cx = fb->w / 2;
     int y = fb->h / 2 - 200;
@@ -250,6 +255,10 @@ static void draw_menu(FB *fb, const Game *g) {
                 0xFF71808F);
     shadow_text(fb, cx, y + 390, "1/2/3 UNIT   SHIFT+1/2/3 QUEUE   T HELP   F FORTIFY   F5/F9 SAVE/LOAD", 1,
                 0xFF71808F);
+    if (v->net_status[0]) {
+        gfx_fill_a(fb, cx - 320, y + 418, 640, 34, 0xFF101820, 220);
+        gfx_text_center(fb, cx, y + 428, v->net_status, 2, 0xFF7FD8C8);
+    }
 }
 
 static void draw_eliminated(FB *fb, const Game *g) {
@@ -306,7 +315,7 @@ void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
         draw_topbar(fb, g);
         draw_selection_info(fb, g);
         draw_minimap(fb, g, r, v);
-        draw_help(fb, g);
+        draw_help(fb, g, v);
     }
 
     if (g->notice_t > 0.0f && !g->menu && g->winner < 0) {
@@ -346,7 +355,7 @@ void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
     } else if (g->eliminated) {
         draw_eliminated(fb, g);
     } else if (g->menu) {
-        draw_menu(fb, g);
+        draw_menu(fb, g, v);
     } else if (g->paused) {
         gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 120);
         int starting = g->time < 0.01f;

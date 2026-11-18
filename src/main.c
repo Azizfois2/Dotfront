@@ -9,9 +9,17 @@
 #include "ai.h"
 #include "render.h"
 #include "platform.h"
+#include "net.h"
 
 #define SIM_DT (1.0f / 60.0f)
 #define SAVE_PATH "wod_save.bin"
+
+static Net NET;
+static int net_mode = 0;      /* 0 offline, 1 host, 2 client */
+static int client_view_init = 0;
+static int client_active_view = 0;
+
+static int is_net_client(void) { return net_mode == 2; }
 
 /* ================================================================== */
 /* Headless AI-vs-AI test                                              */
@@ -191,12 +199,77 @@ static void begin_spectate(Game *g, View *v) {
     game_notice(g, "SPECTATING - NO FOG - Q QUIT");
 }
 
+static void net_fill_ids(Game *g, NetCmd *c) {
+    for (int i = 0; i < MAX_UNITS; i++) {
+        if (!g->selected[i] || !g->units[i].alive) continue;
+        if (g->units[i].owner != g->local) continue;
+        if (c->nids >= MAX_UNITS) break;
+        c->ids[c->nids++] = (uint8_t)i;
+    }
+}
+
+static void net_send_selected(Game *g, int type, const Vec2 *pts, int npts) {
+    NetCmd c;
+    memset(&c, 0, sizeof(c));
+    c.type = (uint8_t)type;
+    net_fill_ids(g, &c);
+    if (c.nids == 0) return;
+    if (npts > NET_CMD_POINTS) npts = NET_CMD_POINTS;
+    for (int i = 0; i < npts; i++) c.pts[i] = pts[i];
+    c.npts = (uint16_t)npts;
+    net_send_command(&NET, &c);
+}
+
+static void net_send_production(Game *g, int type, int queue) {
+    if (g->sel_city < 0) return;
+    NetCmd c;
+    memset(&c, 0, sizeof(c));
+    c.type = NET_CMD_PRODUCE;
+    c.city = (uint8_t)g->sel_city;
+    c.unit_type = (uint8_t)type;
+    c.queue = (uint8_t)queue;
+    net_send_command(&NET, &c);
+}
+
+static void net_send_fortify(Game *g) {
+    if (g->sel_city < 0) return;
+    NetCmd c;
+    memset(&c, 0, sizeof(c));
+    c.type = NET_CMD_FORTIFY;
+    c.city = (uint8_t)g->sel_city;
+    net_send_command(&NET, &c);
+}
+
+static void net_send_rally(Game *g, Vec2 target) {
+    if (g->sel_city < 0) return;
+    NetCmd c;
+    memset(&c, 0, sizeof(c));
+    c.type = NET_CMD_RALLY;
+    c.city = (uint8_t)g->sel_city;
+    c.pts[0] = target;
+    c.npts = 1;
+    net_send_command(&NET, &c);
+}
+
+static void issue_move(Game *g, Input *in, const Vec2 *pts, int n) {
+    if (n <= 0) return;
+    if (is_net_client()) {
+        if (g->nsel > 0) {
+            net_send_selected(g, NET_CMD_MOVE, pts, n);
+        } else if (g->sel_city >= 0 && g->cities[g->sel_city].owner == g->local) {
+            net_send_rally(g, pts[n - 1]);
+        }
+    } else if (g->nsel > 0) {
+        game_order_selected(g, pts, n);
+    } else if (g->sel_city >= 0 && g->cities[g->sel_city].owner == g->local) {
+        game_set_city_rally(g, pts[n - 1]);
+    }
+    in->plen = 0;
+}
+
 static void apply_path(Game *g, Input *in) {
     if (in->plen <= 0) return;
-    if (g->nsel > 0) game_order_selected(g, in->path, in->plen);
-    else if (g->sel_city >= 0 && g->cities[g->sel_city].owner == g->local)
-        game_set_city_rally(g, in->path[in->plen - 1]);
-    in->plen = 0;
+    issue_move(g, in, in->path, in->plen);
 }
 
 static void clear_stage(Input *in) {
@@ -207,9 +280,7 @@ static void clear_stage(Input *in) {
 
 static void submit_stage(Game *g, Input *in) {
     if (in->stage_len <= 0) return;
-    if (g->nsel > 0) game_order_selected(g, in->stage, in->stage_len);
-    else if (g->sel_city >= 0 && g->cities[g->sel_city].owner == g->local)
-        game_set_city_rally(g, in->stage[in->stage_len - 1]);
+    issue_move(g, in, in->stage, in->stage_len);
     clear_stage(in);
 }
 
@@ -290,13 +361,17 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
                        int *players) {
     if (g->eliminated) {
         if (key == PK_SPACE) {
+            if (is_net_client()) NET.spectating = 1;
             begin_spectate(g, v);
             g->sfx |= (uint16_t)SFX_UI;
         } else if (key == PK_R) {
-            new_match(g, v, r, in, seed, ai_diff, *players);
-            printf("new game, %d factions, seed %u, map %s / %s, AI %s\n",
-                   *players, *seed, world_style_name(g->w.style),
-                   world_shape_name(g->w.shape), diff_name(*ai_diff));
+            if (net_mode) game_notice(g, "HOST CONTROLS RESTART");
+            else {
+                new_match(g, v, r, in, seed, ai_diff, *players);
+                printf("new game, %d factions, seed %u, map %s / %s, AI %s\n",
+                       *players, *seed, world_style_name(g->w.style),
+                       world_shape_name(g->w.shape), diff_name(*ai_diff));
+            }
         } else if (key == PK_Q) {
             *running = 0;
         }
@@ -326,16 +401,29 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
         break;
     case PK_SPACE:
         if (g->menu) {
+            if (is_net_client()) {
+                game_notice(g, "WAITING FOR HOST TO START");
+                break;
+            }
             g->menu = 0;
             g->paused = 0;
             g->sfx |= (uint16_t)SFX_UI;
+            if (net_mode == 1) {
+                NET.started = 1;
+                net_host_autofill(&NET, g);
+                game_notice(g, "LAN MATCH STARTED");
+            }
         } else if (g->winner < 0 && in->stage_len > 0) {
             submit_stage(g, in);
             g->sfx |= (uint16_t)SFX_ORDER;
-            game_notice(g, "STAGED ORDERS SENT");
+            if (!is_net_client()) game_notice(g, "STAGED ORDERS SENT");
         } else if (g->winner < 0) {
-            g->paused = !g->paused;
-            g->sfx |= (uint16_t)SFX_UI;
+            if (is_net_client()) {
+                game_notice(g, "HOST CONTROLS PAUSE");
+            } else {
+                g->paused = !g->paused;
+                g->sfx |= (uint16_t)SFX_UI;
+            }
         }
         break;
     case PK_C:
@@ -349,6 +437,11 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
     case PK_LEFT:
     case PK_RIGHT:
         if (g->menu) {
+            if (net_mode) {
+                if (is_net_client() || net_host_has_clients(&NET))
+                    game_notice(g, "PLAYER COUNT LOCKED IN LAN");
+                break;
+            }
             int n = *players + (key == PK_RIGHT ? 1 : -1);
             if (n < 2) n = MAX_PLAYERS;
             if (n > MAX_PLAYERS) n = 2;
@@ -374,7 +467,7 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
                 game_notice(g, b);
             }
         } else if (g->menu) {
-            if (n <= 2) {
+            if (n <= 2 && !net_mode) {
                 *ai_diff = n;
                 for (int p = 1; p < g->players; p++) g->difficulty[p] = *ai_diff;
             }
@@ -382,7 +475,13 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
             assign_group(g, in, n);
             g->sfx |= (uint16_t)SFX_UI;
         } else if (g->sel_city >= 0 && n <= 2) {
-            if (in->shift_down && g->cities[g->sel_city].owner == g->local) {
+            if (is_net_client()) {
+                if (g->cities[g->sel_city].owner == g->local) {
+                    net_send_production(g, n, in->shift_down ? 1 : 0);
+                    g->sfx |= (uint16_t)SFX_UI;
+                    game_notice(g, "PRODUCTION ORDER SENT");
+                }
+            } else if (in->shift_down && g->cities[g->sel_city].owner == g->local) {
                 game_queue_city_production(g, n);
                 g->sfx |= (uint16_t)SFX_UI;
             } else if (g->cities[g->sel_city].owner == g->local) {
@@ -395,6 +494,10 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
         break;
     }
     case PK_R:
+        if (net_mode) {
+            game_notice(g, "HOST CONTROLS RESTART");
+            break;
+        }
         new_match(g, v, r, in, seed, ai_diff, *players);
         printf("new game, %d factions, seed %u, map %s / %s, AI %s\n",
                *players, *seed, world_style_name(g->w.style),
@@ -406,6 +509,10 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
         game_notice(g, g->sound_on ? "SOUND ON" : "SOUND OFF");
         break;
     case PK_F5:
+        if (is_net_client()) {
+            game_notice(g, "HOST SAVES THE MATCH");
+            break;
+        }
         if (!g->menu && !g->eliminated && g->winner < 0) {
             if (game_save(g, SAVE_PATH)) {
                 g->save_available = 1;
@@ -417,6 +524,10 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
         }
         break;
     case PK_F9:
+        if (net_mode) {
+            game_notice(g, "SAVE LOAD IS OFFLINE ONLY");
+            break;
+        }
         if (game_load(g, SAVE_PATH)) {
             *ai_diff = g->difficulty[1];
             *players = g->players;
@@ -428,25 +539,32 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
         break;
     case PK_G:
         if (!g->menu && g->nsel > 0) {
-            game_order_attack_move(g, mouse_world(v, in->last_mx, in->last_my));
+            Vec2 target = mouse_world(v, in->last_mx, in->last_my);
+            if (is_net_client())
+                net_send_selected(g, NET_CMD_ATTACK_MOVE, &target, 1);
+            else
+                game_order_attack_move(g, target);
             g->sfx |= (uint16_t)SFX_ORDER;
         }
         break;
     case PK_H:
         if (!g->menu && g->nsel > 0) {
-            game_order_hold(g);
+            if (is_net_client()) net_send_selected(g, NET_CMD_HOLD, NULL, 0);
+            else game_order_hold(g);
             g->sfx |= (uint16_t)SFX_ORDER;
         }
         break;
     case PK_X:
         if (!g->menu && g->nsel > 0) {
-            game_order_stop(g);
+            if (is_net_client()) net_send_selected(g, NET_CMD_STOP, NULL, 0);
+            else game_order_stop(g);
             g->sfx |= (uint16_t)SFX_ORDER;
         }
         break;
     case PK_F:
         if (!g->menu) {
-            game_fortify_city(g);
+            if (is_net_client()) net_send_fortify(g);
+            else game_fortify_city(g);
             g->sfx |= (uint16_t)SFX_UI;
         }
         break;
@@ -465,6 +583,9 @@ int main(int argc, char **argv) {
     int ai_diff = DIFF_NORMAL;
     int players = 4;
     int spectate = 0;
+    int host_mode = 0;
+    int net_port = NET_DEFAULT_PORT;
+    const char *join_addr = NULL;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "--headless") && i + 1 < argc) headless = (float)atof(argv[++i]);
@@ -474,6 +595,14 @@ int main(int argc, char **argv) {
             if (players > MAX_PLAYERS) players = MAX_PLAYERS;
         }
         else if (!strcmp(argv[i], "--spectate")) spectate = 1;
+        else if (!strcmp(argv[i], "--host")) {
+            host_mode = 1;
+            if (i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9')
+                net_port = (int)strtol(argv[++i], NULL, 10);
+        }
+        else if (!strcmp(argv[i], "--join") && i + 1 < argc) join_addr = argv[++i];
+        else if (!strcmp(argv[i], "--port") && i + 1 < argc)
+            net_port = (int)strtol(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "--difficulty") && i + 1 < argc) {
             const char *d = argv[++i];
             if (!strcmp(d, "easy")) ai_diff = DIFF_EASY;
@@ -486,17 +615,58 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[i], "--help")) {
             printf("usage: %s [--seed N] [--players 2-6] [--headless SECONDS] "
                    "[--difficulty easy|normal|hard]\n"
+                   "       %s --host [PORT] [--players 2-6] [--seed N]\n"
+                   "       %s --join HOST[:PORT]\n"
                    "  default        play blue against 2-6 offline AI factions\n"
                    "  --players N    factions in the match (default 4)\n"
                    "  --headless N   run AI vs AI for N simulated seconds\n"
                    "  --spectate     let the AI play blue too, then watch\n"
-                   "  --difficulty   AI profile (also 1/2/3 in the menu)\n", argv[0]);
+                   "  --difficulty   AI profile (also 1/2/3 in the menu)\n"
+                   "  --host [PORT]  host a LAN match (default port %d)\n"
+                   "  --join ADDR    join a LAN host, e.g. 192.168.1.20\n"
+                   "  --port N       default LAN port (also accepted after --host)\n",
+                   argv[0], argv[0], argv[0], NET_DEFAULT_PORT);
             return 0;
         }
     }
+    if (net_port < 1 || net_port > 65535) {
+        fprintf(stderr, "invalid port %d\n", net_port);
+        return 2;
+    }
+    if (host_mode && join_addr) {
+        fprintf(stderr, "--host and --join cannot be combined\n");
+        return 2;
+    }
+    if ((host_mode || join_addr) && headless > 0.0f) {
+        fprintf(stderr, "network play needs a window; --headless is offline only\n");
+        return 2;
+    }
+    if ((host_mode || join_addr) && spectate) {
+        fprintf(stderr, "--spectate is for offline matches\n");
+        return 2;
+    }
     if (headless > 0.0f) return run_headless(seed, headless, ai_diff, players);
 
-    Platform *plat = plat_open("WAR OF DOTS - C", WIN_W, WIN_H);
+    if (host_mode) {
+        if (!net_host(&NET, net_port)) {
+            fprintf(stderr, "LAN host failed: %s\n", NET.error);
+            return 1;
+        }
+        net_mode = 1;
+        printf("LAN host listening on port %d (clients: %s)\n", net_port, NET.status);
+    } else if (join_addr) {
+        if (!net_join(&NET, join_addr, net_port)) {
+            fprintf(stderr, "LAN join failed: %s\n", NET.error);
+            return 1;
+        }
+        net_mode = 2;
+        printf("LAN client connected to %s\n", join_addr);
+    }
+
+    char title[64];
+    snprintf(title, sizeof(title), "WAR OF DOTS - C%s%s",
+             net_mode == 1 ? " [HOST]" : "", net_mode == 2 ? " [CLIENT]" : "");
+    Platform *plat = plat_open(title, WIN_W, WIN_H);
     if (!plat) {
         fprintf(stderr, "cannot open window (try --headless)\n");
         return 1;
@@ -507,16 +677,23 @@ int main(int argc, char **argv) {
     game_init(&g, seed, players);
     for (int p = 1; p < g.players; p++) g.difficulty[p] = ai_diff;
     g.save_available = (uint8_t)game_save_exists(SAVE_PATH);
+    if (net_mode == 2) {
+        g.menu = 1;
+        g.paused = 1;
+        g.save_available = 0;
+        game_notice(&g, "CONNECTED - WAITING FOR HOST");
+    }
     if (spectate) {
         g.ai_enabled[0] = 1;
         g.menu = 0;
         g.paused = 0;
         g.spectator = 1;
     }
-    printf("WAR OF DOTS (C) - seed %u, %d factions, %s / %s %dx%d, %d cities, AI %s%s\n",
+    printf("WAR OF DOTS (C) - seed %u, %d factions, %s / %s %dx%d, %d cities, AI %s%s%s\n",
            seed, g.players, world_style_name(g.w.style),
            world_shape_name(g.w.shape), g.w.width, g.w.height,
-           g.ncity, diff_name(ai_diff), spectate ? ", spectating" : "");
+           g.ncity, diff_name(ai_diff), spectate ? ", spectating" : "",
+           net_mode == 1 ? ", LAN host" : (net_mode == 2 ? ", LAN client" : ""));
 
     Renderer r;
     render_init(&r, &g);
@@ -562,11 +739,15 @@ int main(int argc, char **argv) {
                         center_camera(&v, &g, mmw);
                     } else if (ev.button == 3) {
                         if (g.nsel > 0) {
-                            game_order_selected(&g, &mmw, 1);
+                            if (is_net_client())
+                                net_send_selected(&g, NET_CMD_MOVE, &mmw, 1);
+                            else
+                                game_order_selected(&g, &mmw, 1);
                             g.sfx |= (uint16_t)SFX_ORDER;
                         } else if (g.sel_city >= 0 &&
                                    g.cities[g.sel_city].owner == g.local) {
-                            game_set_city_rally(&g, mmw);
+                            if (is_net_client()) net_send_rally(&g, mmw);
+                            else game_set_city_rally(&g, mmw);
                             g.sfx |= (uint16_t)SFX_ORDER;
                         } else {
                             center_camera(&v, &g, mmw);
@@ -723,9 +904,27 @@ int main(int argc, char **argv) {
         }
 
         clamp_camera(&v, &g);
-        game_update(&g, dt);
-        for (int p = 0; p < g.players; p++)
-            if (g.ai_enabled[p]) ai_update(&g, p, dt);
+        if (is_net_client()) {
+            net_client_update(&NET, &g);
+            if (NET.have_snapshot && !client_view_init) {
+                render_free(&r);
+                render_init(&r, &g);
+                if (g.spectator) view_whole_map(&v, &g);
+                else reset_view(&v, &g);
+                client_view_init = 1;
+            }
+            if (NET.started && client_view_init && !client_active_view) {
+                client_active_view = 1;
+                if (!g.spectator) reset_view(&v, &g);
+            }
+            if (!NET.connected && NET.error[0])
+                game_notice(&g, "HOST DISCONNECTED - Q QUIT");
+        } else {
+            game_update(&g, dt);
+            for (int p = 0; p < g.players; p++)
+                if (g.ai_enabled[p]) ai_update(&g, p, dt);
+            if (net_mode == 1) net_host_update(&NET, &g, t);
+        }
 
         /* Local faction wiped out while other AI factions still fight:
          * stop the simulation and offer restart / fog-free spectating. */
@@ -744,6 +943,9 @@ int main(int argc, char **argv) {
             v.box_a = in.press_world;
             v.box_b = mouse_world(&v, in.last_mx, in.last_my);
         }
+        v.net_status[0] = '\0';
+        if (net_mode)
+            snprintf(v.net_status, sizeof(v.net_status), "%s", NET.status);
         v.path_active = in.path_active;
         v.plen = in.plen;
         memcpy(v.path, in.path, sizeof(Vec2) * (size_t)in.plen);
@@ -765,5 +967,6 @@ int main(int argc, char **argv) {
 
     render_free(&r);
     plat_close(plat);
+    if (net_mode) net_close(&NET);
     return 0;
 }

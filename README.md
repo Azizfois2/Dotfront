@@ -1,10 +1,10 @@
-# War of Dots — offline C edition
+# War of Dots — C edition
 
 [![build](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml/badge.svg)](https://github.com/Azizfois2/war-of-dots-c/actions/workflows/build.yml)
 
 A small single-player RTS in C, inspired by the Python [War of Dots](https://github.com/gamepycoder/War-of-dots-) in this repository.
-You command blue dots against 2-6 offline AI factions (blue, red, green, gold, violet, cyan), and
-the whole match runs offline on one machine.
+You command blue dots against 2-6 AI factions (blue, red, green, gold, violet, cyan), offline or
+over a LAN, on one shared C game core.
 
 No game engine, no assets, no image libraries: the game draws into a 32-bit framebuffer and a
 small platform layer presents it. Linux uses Xlib/MIT-SHM, Windows uses GDI, macOS uses native Cocoa,
@@ -16,6 +16,8 @@ platform SDK/headers.
 ## Features
 
 - 2-6 factions with distinct colours, and an opponent-count selector on the start menu
+- LAN play: an authoritative host, up to five TCP clients, client orders, and AI takeover of
+  every empty or disconnected faction slot
 - Procedurally generated maps in four styles (island, archipelago, lakes, highlands) and five
   large-scale silhouettes (continent, twin isles, broken atoll, fjords, island chain,
   isthmus, crescent, rift), with warped
@@ -81,6 +83,8 @@ wod_c.exe               # Windows
 ./wod_c --players 6     # 1 human + 5 AI factions (2-6 total)
 ./wod_c --difficulty hard
 ./wod_c --spectate      # watch an all-AI match with no fog of war
+./wod_c --host 47777 --players 4 --seed 12   # LAN host
+./wod_c --join 192.168.1.20:47777            # LAN client
 ```
 
 The start menu shows the seed, city count, map style and landmass silhouette. The camera starts
@@ -89,6 +93,24 @@ and horizontally to see the whole map. Before starting, use `LEFT` / `RIGHT`
 to choose the number of opponents (1-5), shown as a faction-dot row. Press `SPACE` to start,
 `1` / `2` / `3` to pick the AI difficulty, `F9` to continue a saved match, `R` for a new map,
 or `Q` to quit.
+
+### LAN play
+
+1. On one machine start a host: `./wod_c --host 47777 --players 4 --seed 12`.
+   The window title shows `[HOST]` and the lobby badge shows the port and connected clients.
+2. On each other machine run the same build: `./wod_c --join 192.168.1.20:47777`
+   (replace the address with the host's LAN IP; append `:PORT` only if not 47777).
+   Clients are assigned the next free faction and see the host's map in the lobby.
+3. The host presses `SPACE` to start. Any faction slot without a client is controlled by the AI,
+   and a client that leaves mid-match is immediately taken over by the AI.
+4. Clients send orders (move, attack-move, hold, stop, production, rally, fortify) to the host,
+   which simulates the match and broadcasts authoritative snapshots about ten times per second.
+   Client cameras, selection, control groups, tutorial, sound and fog view stay local.
+
+The host controls pause, restart, map/player count and saving. `F9` load is disabled in LAN
+matches. A client joining after the match has started is rejected. The host listens on TCP port
+47777 (or `--port N` / the optional port after `--host`), so allow that port through the host
+firewall. This is LAN play, not NAT traversal; both ends must run the same game version.
 
 | Input | Action |
 | --- | --- |
@@ -102,7 +124,7 @@ or `Q` to quit.
 | `G` | Attack-move the selection to the cursor (stops to fight) |
 | `H` | Hold position (selected units stop and do not chase) |
 | `X` | Stop / cancel current orders |
-| `1` `2` `3` | With a city selected: produce scout / soldier / heavy. Otherwise: switch the AI difficulty |
+| `1` `2` `3` | With a city selected: produce scout / soldier / heavy. In the offline menu: switch AI difficulty |
 | `SHIFT` + `1` `2` `3` | Queue another scout / soldier / heavy at the selected city (max 5) |
 | `CTRL` + `1`–`6` | Store the current selection as a control group |
 | `1`–`6` | Recall that group when no city is selected |

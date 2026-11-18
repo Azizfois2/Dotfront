@@ -82,4 +82,21 @@ void game_select_all(Game *g);
 void game_order_selected(Game *g, const Vec2 *pts, int n);
 void game_set_city_rally(Game *g, Vec2 world);
 
+/* Network commands: act on explicit unit ids / a city without changing the
+ * local player's selection or camera. */
+enum {
+    GAME_CITY_PRODUCE = 0,
+    GAME_CITY_QUEUE,
+    GAME_CITY_FORTIFY,
+    GAME_CITY_RALLY
+};
+void game_remote_order(Game *g, int owner, const uint8_t *ids, int nids,
+                       const Vec2 *pts, int npts);
+void game_remote_attack_move(Game *g, int owner, const uint8_t *ids, int nids,
+                             Vec2 target);
+void game_remote_hold(Game *g, int owner, const uint8_t *ids, int nids);
+void game_remote_stop(Game *g, int owner, const uint8_t *ids, int nids);
+void game_remote_city(Game *g, int owner, int city, int action, int type,
+                      Vec2 point);
+
 #endif /* GAME_H */
