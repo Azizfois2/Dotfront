@@ -18,6 +18,8 @@ typedef struct {
     int      players;           /* 2..MAX_PLAYERS */
     int      local;             /* faction controlled by the keyboard/mouse */
     int      winner;            /* -1 playing, P_* winner, -2 draw */
+    int      eliminated;        /* local faction lost; choice screen is up */
+    int      spectator;         /* local faction lost and is now observing */
     /* match summary */
     int      built[MAX_PLAYERS];
     int      lost[MAX_PLAYERS];

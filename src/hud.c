@@ -29,9 +29,10 @@ static void draw_minimap(FB *fb, const Game *g, const Renderer *r, const View *v
             if (rr2 > g->w.rows - 1) rr2 = g->w.rows - 1;
             float vis = (float)g->vis[local][rr2][cc] / 255.0f;
             float seen = (float)g->seen[local][rr2][cc] / 255.0f;
-            float fog = (1.0f - seen) * 0.88f + seen * (1.0f - vis) * 0.55f;
+            float fog = g->spectator ? 0.0f
+                      : (1.0f - seen) * 0.88f + seen * (1.0f - vis) * 0.55f;
             uint32_t c0 = r->mini[y * r->mw + x];
-            if (seen > 0.2f && g->terr_owner[rr2][cc] >= 0) {
+            if ((g->spectator || seen > 0.2f) && g->terr_owner[rr2][cc] >= 0) {
                 uint32_t oc = owner_color(g->terr_owner[rr2][cc]);
                 c0 = rgb((uint8_t)(((c0 >> 16) & 255) * 0.72f + ((oc >> 16) & 255) * 0.28f),
                          (uint8_t)(((c0 >> 8) & 255) * 0.72f + ((oc >> 8) & 255) * 0.28f),
@@ -46,17 +47,32 @@ static void draw_minimap(FB *fb, const Game *g, const Renderer *r, const View *v
 
     for (int i = 0; i < g->ncity; i++) {
         const City *c = &g->cities[i];
-        if (game_seen_at(g, local, c->pos.x, c->pos.y) < 0.05f) continue;
-        int owner = game_known_city_owner(g, local, i);
+        if (!g->spectator &&
+            game_seen_at(g, local, c->pos.x, c->pos.y) < 0.05f) continue;
+        int owner = g->spectator ? c->owner : game_known_city_owner(g, local, i);
         int x = mx + (int)(c->pos.x / (float)g->w.width * (float)r->mw);
         int y = my + (int)(c->pos.y / (float)g->w.height * (float)r->mh);
         gfx_disc(fb, (float)x, (float)y, 2.6f, 0xFF15151A);
         gfx_disc(fb, (float)x, (float)y, 1.9f, owner_color(owner));
     }
+    /* mark the faction's starting city so it is always easy to find */
+    if (!g->spectator) {
+        Vec2 cp = g->capital[local];
+        int x = mx + (int)(cp.x / (float)g->w.width * (float)r->mw);
+        int y = my + (int)(cp.y / (float)g->w.height * (float)r->mh);
+        gfx_line(fb, (float)x - 4.0f, (float)y - 4.0f,
+                 (float)x + 4.0f, (float)y - 4.0f, 1.0f, C_WHITE);
+        gfx_line(fb, (float)x - 4.0f, (float)y + 4.0f,
+                 (float)x + 4.0f, (float)y + 4.0f, 1.0f, C_WHITE);
+        gfx_line(fb, (float)x - 4.0f, (float)y - 4.0f,
+                 (float)x - 4.0f, (float)y + 4.0f, 1.0f, C_WHITE);
+        gfx_line(fb, (float)x + 4.0f, (float)y - 4.0f,
+                 (float)x + 4.0f, (float)y + 4.0f, 1.0f, C_WHITE);
+    }
     for (int i = 0; i < MAX_UNITS; i++) {
         const Unit *u = &g->units[i];
         if (!u->alive) continue;
-        if (u->owner != local &&
+        if (!g->spectator && u->owner != local &&
             game_visibility_at(g, local, u->pos.x, u->pos.y) < 0.30f) continue;
         int x = mx + (int)(u->pos.x / (float)g->w.width * (float)r->mw);
         int y = my + (int)(u->pos.y / (float)g->w.height * (float)r->mh);
@@ -83,10 +99,19 @@ static void draw_topbar(FB *fb, const Game *g) {
     gfx_fill_a(fb, 0, 0, fb->w, 46, 0xFF080B10, 205);
     gfx_fill_a(fb, 0, 46, fb->w, 2, 0xFF2A3442, 255);
 
-    gfx_disc(fb, 22.0f, 23.0f, 7.0f, owner_color(local));
-    snprintf(buf, sizeof(buf), "%s  CITIES %d  ARMY %d",
-             owner_name(local), g->cities_owned[local], g->units_owned[local]);
-    gfx_text(fb, 36, 12, buf, 2, owner_color(local));
+    if (g->spectator) {
+        int alive = 0;
+        for (int p = 0; p < g->players; p++)
+            if (g->cities_owned[p] > 0 || g->units_owned[p] > 0) alive++;
+        gfx_disc(fb, 22.0f, 23.0f, 7.0f, C_WHITE);
+        snprintf(buf, sizeof(buf), "SPECTATING  %d FACTIONS ALIVE", alive);
+        gfx_text(fb, 36, 12, buf, 2, C_WHITE);
+    } else {
+        gfx_disc(fb, 22.0f, 23.0f, 7.0f, owner_color(local));
+        snprintf(buf, sizeof(buf), "%s  CITIES %d  ARMY %d",
+                 owner_name(local), g->cities_owned[local], g->units_owned[local]);
+        gfx_text(fb, 36, 12, buf, 2, owner_color(local));
+    }
 
     char t[16];
     fmt_time(t, sizeof(t), g->time);
@@ -104,9 +129,15 @@ static void draw_topbar(FB *fb, const Game *g) {
     /* Only scouted cities and currently visible units are known. */
     int x = fb->w - 18;
     for (int p = g->players - 1; p >= 0; p--) {
-        if (p == local) continue;
-        int known = game_known_city_count(g, local, p);
-        int seen_units = game_visible_unit_count(g, local, p);
+        if (!g->spectator && p == local) continue;
+        int known, seen_units;
+        if (g->spectator) {
+            known = g->cities_owned[p];
+            seen_units = g->units_owned[p];
+        } else {
+            known = game_known_city_count(g, local, p);
+            seen_units = game_visible_unit_count(g, local, p);
+        }
         snprintf(buf, sizeof(buf), "%s %d/%d", owner_name(p), known, seen_units);
         int w = font_text_width(buf, 1);
         x -= w;
@@ -154,14 +185,15 @@ static void draw_selection_info(FB *fb, const Game *g) {
 }
 
 static void draw_help(FB *fb, const Game *g) {
-    (void)g;
     int h = 24;
     int y = fb->h - h;
     gfx_fill_a(fb, 0, y, fb->w, h, 0xFF080B10, 200);
-    const char *help =
-        "LMB SELECT   RMB MOVE   SHIFT+RMB STAGE   SPACE SEND/PAUSE   C CLEAR   "
-        "G ATTACK   H HOLD   X STOP   Z ALL   F FORTIFY   F5/F9 SAVE/LOAD   "
-        "M SOUND   R NEW   ARROWS PAN   WHEEL ZOOM";
+    const char *help = g->spectator
+        ? "SPECTATING - NO FOG   ARROWS/WASD PAN   MIDDLE DRAG PAN   EDGE SCROLL   "
+          "WHEEL ZOOM   R NEW GAME   Q QUIT"
+        : "LMB SELECT   RMB MOVE   SHIFT+RMB STAGE   SPACE SEND/PAUSE   C CLEAR   "
+          "G ATTACK   H HOLD   X STOP   Z ALL   F FORTIFY   F5/F9 SAVE/LOAD   "
+          "M SOUND   R NEW   ARROWS PAN   WHEEL ZOOM";
     gfx_text(fb, 12, y + 8, help, 1, 0xFF8C9AAB);
 }
 
@@ -172,8 +204,9 @@ static void draw_menu(FB *fb, const Game *g) {
     shadow_text(fb, cx, y, "WAR OF DOTS", 7, C_WHITE);
 
     char line[128];
-    snprintf(line, sizeof(line), "SEED %u    %d CITIES    %s",
-             g->w.seed, g->ncity, world_style_name(g->w.style));
+    snprintf(line, sizeof(line), "SEED %u    %d CITIES    %s / %s",
+             g->w.seed, g->ncity, world_style_name(g->w.style),
+             world_shape_name(g->w.shape));
     shadow_text(fb, cx, y + 86, line, 2, 0xFF9FB4C8);
 
     snprintf(line, sizeof(line), "<   %d OPPONENTS   >", g->players - 1);
@@ -211,6 +244,20 @@ static void draw_menu(FB *fb, const Game *g) {
                 0xFF71808F);
     shadow_text(fb, cx, y + 390, "1/2/3 CITY UNIT   F FORTIFY   F5 SAVE   F9 LOAD   C CLEAR STAGES", 1,
                 0xFF71808F);
+}
+
+static void draw_eliminated(FB *fb, const Game *g) {
+    gfx_fill_a(fb, 0, 0, fb->w, fb->h, 0xFF05070A, 190);
+    int cy = fb->h / 2 - 76;
+    shadow_text(fb, fb->w / 2, cy, "YOU WERE ELIMINATED", 6, C_WHITE);
+    shadow_text(fb, fb->w / 2, cy + 62,
+                owner_name(g->local), 3, owner_color(g->local));
+    shadow_text(fb, fb->w / 2, cy + 116,
+                "R   NEW GAME", 3, 0xFFCFE3F5);
+    shadow_text(fb, fb->w / 2, cy + 152,
+                "SPACE   WATCH THE REST (NO FOG)", 3, 0xFFCFE3F5);
+    shadow_text(fb, fb->w / 2, cy + 188,
+                "Q   QUIT", 3, 0xFFCFE3F5);
 }
 
 void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
@@ -255,6 +302,8 @@ void render_hud(FB *fb, const Game *g, const Renderer *r, const View *v) {
         }
         shadow_text(fb, fb->w / 2, cy + 128 + rows * 16 + 22,
                     "R NEW MATCH    F9 LOAD    Q QUIT", 2, 0xFFBFD4E6);
+    } else if (g->eliminated) {
+        draw_eliminated(fb, g);
     } else if (g->menu) {
         draw_menu(fb, g);
     } else if (g->paused) {

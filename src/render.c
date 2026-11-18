@@ -90,6 +90,7 @@ static void build_fog_cells(const Game *g) {
     int p = g->local;
     for (int r = 0; r < g->w.rows; r++) {
         for (int c = 0; c < g->w.cols; c++) {
+            if (g->spectator) { fog_cells[r][c] = 0; continue; }
             float vis = (float)g->vis[p][r][c] / 255.0f;
             float seen = (float)g->seen[p][r][c] / 255.0f;
             float fog = (1.0f - seen) * 0.88f + seen * (1.0f - vis) * 0.58f;
@@ -133,7 +134,7 @@ static void blit_terrain(FB *fb, const Game *g, const Renderer *r, const View *v
             /* nearby territory gets a faint faction tint, so ownership is
              * readable even before the border line is noticed */
             int town = g->terr_owner[iy][ix];
-            if (town >= 0 && g->seen[g->local][iy][ix] > 40) {
+            if (town >= 0 && (g->spectator || g->seen[g->local][iy][ix] > 40)) {
                 uint32_t oc = owner_color(town);
                 rr = (rr * 86u + ((oc >> 16) & 255u) * 14u) / 100u;
                 gg = (gg * 86u + ((oc >> 8) & 255u) * 14u) / 100u;
@@ -190,7 +191,7 @@ static void draw_borders(FB *fb, const Game *g, const View *v) {
     float thick = fmaxf(2.0f, 3.0f * v->zoom);
     for (int r = r0; r < r1; r++) {
         for (int c = c0; c < c1; c++) {
-            if (g->seen[g->local][r][c] < 55) continue;
+            if (!g->spectator && g->seen[g->local][r][c] < 55) continue;
             int o = g->terr_owner[r][c];
             if (c + 1 < g->w.cols) {
                 int q = g->terr_owner[r][c + 1];
@@ -227,12 +228,14 @@ static void draw_city(FB *fb, const Game *g, const View *v, int idx) {
     float r = CITY_R * z;
     if (s.x < -140.0f * z || s.y < -140.0f * z ||
         s.x > (float)fb->w + 140.0f * z || s.y > (float)fb->h + 140.0f * z) return;
-    if (game_seen_at(g, g->local, c->pos.x, c->pos.y) < 0.05f) return;
+    if (!g->spectator &&
+        game_seen_at(g, g->local, c->pos.x, c->pos.y) < 0.05f) return;
 
     /* current owner only while the city is actually in sight; otherwise show
      * the last owner the player scouted (or neutral if never scouted). */
     int shown_owner = c->owner;
-    float vis = game_visibility_at(g, g->local, c->pos.x, c->pos.y);
+    float vis = g->spectator ? 1.0f
+              : game_visibility_at(g, g->local, c->pos.x, c->pos.y);
     if (vis < 0.18f) {
         shown_owner = game_known_city_owner(g, g->local, idx);
         if (shown_owner < 0) shown_owner = -1;
@@ -298,7 +301,7 @@ static int unit_in_combat(const Game *g, const Unit *u) {
 static void draw_unit(FB *fb, const Game *g, const View *v, int idx) {
     const Unit *u = &g->units[idx];
     if (!u->alive) return;
-    if (u->owner != g->local &&
+    if (!g->spectator && u->owner != g->local &&
         game_visibility_at(g, g->local, u->pos.x, u->pos.y) < 0.30f) return;
     float z = v->zoom;
     Vec2 pos = u->pos;

@@ -68,22 +68,32 @@ void game_init(Game *g, uint32_t seed, int players) {
         g->cities[i].prod_type = UT_SOLDIER;
     }
 
-    /* Capitals: farthest-pair seed, then greedy farthest-point sampling so
-     * every faction starts spread around the map instead of in one corner. */
+    /* The human faction starts at the city closest to the map centre, so the
+     * opening camera view is genuinely centred on the player. The AI factions
+     * are then seeded from the farthest city and spread with greedy
+     * farthest-point sampling. */
     int chosen[MAX_PLAYERS] = { 0 };
     int used[MAX_CITIES] = { 0 };
-    int a = 0, b = (n > 1 ? 1 : 0);
-    float best_pair = -1.0f;
+    Vec2 mid = v2((float)g->w.width * 0.5f, (float)g->w.height * 0.5f);
+    int a = 0;
+    float best_center = 1e30f;
     for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
-            float d = vdist(pos[i], pos[j]);
-            if (d > best_pair) { best_pair = d; a = i; b = j; }
-        }
+        float d = vdist(pos[i], mid);
+        if (d < best_center) { best_center = d; a = i; }
     }
     chosen[0] = a;
-    if (players > 1) chosen[1] = b;
     used[a] = 1;
-    used[b] = 1;
+    if (players > 1) {
+        int b = 0;
+        float far = -1.0f;
+        for (int i = 0; i < n; i++) {
+            if (used[i]) continue;
+            float d = vdist(pos[i], pos[a]);
+            if (d > far) { far = d; b = i; }
+        }
+        chosen[1] = b;
+        used[b] = 1;
+    }
     for (int k = 2; k < players; k++) {
         int pick = -1;
         float best = -1.0f;
@@ -649,7 +659,7 @@ void game_set_city_production(Game *g, int type) {
 /* ------------------------------------------------------------------ */
 
 #define SAVE_MAGIC   0x574F4443u   /* WODC */
-#define SAVE_VERSION 6u
+#define SAVE_VERSION 7u
 
 void game_notice(Game *g, const char *text) {
     snprintf(g->notice, sizeof(g->notice), "%s", text);
@@ -677,6 +687,8 @@ static int valid_saved_game(const Game *g) {
     for (int p = 0; p < g->players; p++)
         if (g->difficulty[p] < 0 || g->difficulty[p] >= DIFF_COUNT) return 0;
     if (g->winner < -2 || g->winner >= g->players) return 0;
+    if (g->eliminated < 0 || g->eliminated > 1) return 0;
+    if (g->spectator < 0 || g->spectator > 1) return 0;
     if (!isfinite(g->time) || g->time < 0.0f) return 0;
     for (int i = 0; i < g->ncity; i++) {
         const City *c = &g->cities[i];

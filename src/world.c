@@ -69,14 +69,66 @@ static float fbm(float x, float y, uint32_t seed, int octaves) {
     return sum / norm;
 }
 
-/* Radial falloff keeps the border wet while still allowing several islands. */
-static float island_bias(const World *w, float x, float y, float strength) {
-    float cx = (float)w->width * 0.5f, cy = (float)w->height * 0.5f;
-    float dx = (x - cx) / cx, dy = (y - cy) / cy;
-    float d = sqrtf(dx * dx + dy * dy) / 1.41421356f;
-    float b = d <= 0.58f ? 0.58f + fmaxf(d * 0.35f, 0.16f)
-                         : fmaxf(0.0f, 1.0f - (d - 0.58f) * 2.25f);
-    return b * strength;
+const char *world_shape_name(int shape) {
+    switch (shape) {
+    case SHAPE_TWIN:     return "TWIN ISLES";
+    case SHAPE_ATOLL:    return "ATOLL";
+    case SHAPE_FJORDS:   return "FJORDS";
+    case SHAPE_SCATTER:  return "SCATTER";
+    default:             return "CONTINENT";
+    }
+}
+
+/* A domain-warped, non-radial landmass mask. Each shape gives a different
+ * large-scale silhouette (one continent, two lobes, a ring, fjord-cut land,
+ * or many small islands) instead of every map being the same central blob. */
+static float shape_bias(const World *w, float x, float y, float strength,
+                        int shape, uint32_t seed) {
+    float nx = (x / (float)w->width - 0.5f) * 2.0f;
+    float ny = (y / (float)w->height - 0.5f) * 2.0f;
+
+    /* warp the coordinate space itself so coasts are not elliptical */
+    float wx = fbm(nx * 2.3f + 7.1f, ny * 2.3f - 3.7f, seed ^ 0x51A3u, 2);
+    float wy = fbm(nx * 2.4f - 4.2f, ny * 2.1f + 8.5f, seed ^ 0x9C11u, 2);
+    nx += (wx - 0.5f) * 0.26f;
+    ny += (wy - 0.5f) * 0.26f;
+
+    float b = 0.0f;
+    switch (shape) {
+    case SHAPE_TWIN: {
+        float a1 = 0.72f - sqrtf((nx + 0.42f) * (nx + 0.42f) * 1.18f +
+                                 ny * ny * 1.50f) * 1.05f;
+        float a2 = 0.72f - sqrtf((nx - 0.42f) * (nx - 0.42f) * 1.18f +
+                                 (ny - 0.04f) * (ny - 0.04f) * 1.50f) * 1.05f;
+        b = fmaxf(a1, a2);
+        break;
+    }
+    case SHAPE_ATOLL: {
+        float r = sqrtf(nx * nx * 0.92f + ny * ny * 1.18f);
+        b = 0.50f - fabsf(r - 0.52f) * 1.65f;
+        break;
+    }
+    case SHAPE_FJORDS: {
+        float r = sqrtf(nx * nx * 0.86f + ny * ny * 1.10f);
+        b = 0.86f - r * 1.00f;
+        /* long, stretched ridges cut narrow water inlets into the coast */
+        float ridge = fbm(nx * 3.6f + 21.0f, ny * 1.15f - 9.0f,
+                          seed ^ 0xB17Bu, 3);
+        float channel = smoothf(clampf((ridge - 0.52f) / 0.20f, 0.0f, 1.0f));
+        b -= channel * 0.42f;
+        break;
+    }
+    case SHAPE_SCATTER:
+        b = 0.18f + (fbm(nx * 2.0f + 13.0f, ny * 2.0f + 4.0f,
+                         seed ^ 0x77C3u, 3) - 0.5f) * 0.62f;
+        break;
+    default: {
+        float r = sqrtf(nx * nx * 0.78f + ny * ny * 1.16f);
+        b = 0.84f - r * 1.02f;
+        break;
+    }
+    }
+    return b * strength * 1.45f;
 }
 
 typedef struct {
@@ -196,22 +248,37 @@ void world_generate(World *w, uint32_t seed, int players,
     w->height = rows * CELL;
 
     uint32_t s = seed ^ 0xA5A5F00Du ^ (uint32_t)w->style * 0x9E3779B9u;
+    w->shape = (int)((seed ^ (seed >> 7) ^ (seed * 0x9E3779B9u) >> 3) % (uint32_t)SHAPE_COUNT);
+    /* keep the silhouette consistent with the style name */
+    if (w->style == MAP_ARCHIPELAGO && w->shape == SHAPE_CONTINENT)
+        w->shape = SHAPE_SCATTER;
+    if (w->style == MAP_LAKES && w->shape == SHAPE_ATOLL)
+        w->shape = SHAPE_FJORDS;
     MapTuning tune = tuning_for(w->style);
 
     /* elevation at grid corners */
     for (int r = 0; r <= w->rows; r++) {
         for (int c = 0; c <= w->cols; c++) {
             float x = (float)c * CELL, y = (float)r * CELL;
-            float n = fbm(x * tune.freq, y * tune.freq, s, 4);
+            /* warp the terrain noise as well, so coastlines curl and branch */
+            float qx = fbm(x * tune.freq * 0.58f + 9.0f,
+                           y * tune.freq * 0.58f - 5.0f, s ^ 0x2F71u, 2);
+            float qy = fbm(x * tune.freq * 0.61f - 12.0f,
+                           y * tune.freq * 0.55f + 6.0f, s ^ 0x83D5u, 2);
+            float n = fbm(x * tune.freq + (qx - 0.5f) * 2.2f,
+                          y * tune.freq + (qy - 0.5f) * 2.2f, s, 5);
             float f = fbm(x * 0.035f + 31.0f, y * 0.035f - 17.0f, s ^ 0x51ED27u, 3);
-            float e = n * 0.90f + island_bias(w, x, y, tune.bias) * 0.55f
-                      + tune.offset - 0.44f;
-            /* guarantee open sea around the map border */
+            float e = n * 0.88f + shape_bias(w, x, y, tune.bias, w->shape, s) * 0.92f
+                      + tune.offset - 0.36f;
+            /* open sea around the map border, with a wavy rather than a
+             * ruler-straight rectangular edge */
+            float wob = (fbm(x * 0.008f + 3.0f, y * 0.008f - 8.0f,
+                             s ^ 0x4C1Bu, 2) - 0.5f) * 13.0f;
             int edge_cells = r < w->rows - r ? r : w->rows - r;
             int ed = c < w->cols - c ? c : w->cols - c;
             if (ed < edge_cells) edge_cells = ed;
-            float edge = clampf((float)edge_cells / 5.0f, 0.0f, 1.0f);
-            e *= 0.30f + 0.70f * smoothf(edge);
+            float edge = clampf(((float)edge_cells + wob) / 7.0f, 0.0f, 1.0f);
+            e *= 0.24f + 0.76f * smoothf(edge);
             w->elev[r][c] = clampf(e, 0.0f, 1.0f);
             w->forest[r][c] = f;
         }

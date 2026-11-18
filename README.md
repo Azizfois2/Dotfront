@@ -16,8 +16,10 @@ platform SDK/headers.
 ## Features
 
 - 2-6 factions with distinct colours, and an opponent-count selector on the start menu
-- Procedurally generated maps in four styles (island, archipelago, lakes, highlands); the map
-  grows with the player count (roughly five cities and 400k px² per faction, up to 2060×1160)
+- Procedurally generated maps in four styles (island, archipelago, lakes, highlands) and five
+  large-scale silhouettes (continent, twin isles, atoll, fjords, scattered isles), with warped
+  cliffs, noisy coasts and wavy sea borders instead of one central square blob; the map grows
+  with the player count (roughly five cities and 400k px² per faction, up to 2060×1160)
 - Territory grid derived from city influence: ground is faintly faction-tinted, borders are drawn
   on the cell grid, and standing on friendly/enemy soil modifies supply healing
 - Five terrain types with real gameplay effects: plains, forest, hill, water, impassable mountain
@@ -39,7 +41,8 @@ platform SDK/headers.
 - Fog-respecting AI: it scouts unknown ground, remembers city owners, and defends only attacks
   it can actually see; it builds mixed armies and recovers units stuck in traffic jams
 - Three AI difficulty levels, selectable from the command line or with `1` / `2` / `3`
-- Camera pan/zoom, minimap, pause, restart, start menu, win screen
+- Camera pan/zoom, edge scrolling, minimap (with a marker on your starting city), pause,
+  restart, start menu, win screen, and a fog-free spectator mode after elimination
 - Headless AI-vs-AI mode for testing, balance work, and regression checks
 
 ## Build
@@ -73,10 +76,12 @@ wod_c.exe               # Windows
 ./wod_c --seed 42       # reproducible map
 ./wod_c --players 6     # 1 human + 5 AI factions (2-6 total)
 ./wod_c --difficulty hard
-./wod_c --spectate      # let every faction (including blue) play itself
+./wod_c --spectate      # watch an all-AI match with no fog of war
 ```
 
-The start menu shows the seed, city count and map style. Before starting, use `LEFT` / `RIGHT`
+The start menu shows the seed, city count, map style and landmass silhouette. The camera starts
+centred on your capital and is deliberately zoomed in enough that you have to scroll vertically
+and horizontally to see the whole map. Before starting, use `LEFT` / `RIGHT`
 to choose the number of opponents (1-5), shown as a faction-dot row. Press `SPACE` to start,
 `1` / `2` / `3` to pick the AI difficulty, `F9` to continue a saved match, `R` for a new map,
 or `Q` to quit.
@@ -99,6 +104,7 @@ or `Q` to quit.
 | `M` | Toggle sound |
 | `A` `D` / `W` `S`, arrows | Pan the camera |
 | Middle drag | Pan the camera |
+| Move cursor to a window edge | Scroll the camera in that direction |
 | Mouse wheel | Zoom around the cursor |
 | `SPACE` | Pause / resume (or send staged orders when a route is staged) |
 | `ESC` | Clear selection (or leave the menu) |
@@ -155,6 +161,20 @@ live with `1`, `2`, `3`:
   faction owns most of the map, is at its unit cap, or has an enemy down to its last known city,
   it sends every idle dot instead of trickling waves, so endgames actually close out.
 
+## If you are eliminated
+
+When your last city and unit are gone but other AI factions are still fighting, the game pauses
+and offers three choices:
+
+| Key | Action |
+| --- | --- |
+| `R` | Start a fresh match with a new random map |
+| `SPACE` | Keep watching the surviving factions with **no fog of war**; `Q` quits at any time |
+| `Q` | Quit immediately |
+
+While spectating, the whole map is visible, the HUD shows every faction's live city/army counts,
+and the normal pan/zoom controls still work.
+
 ## Headless mode
 
 ```sh
@@ -162,7 +182,7 @@ live with `1`, `2`, `3`:
 ./wod_c --headless 240 --seed 3 --players 6 --difficulty hard
 ```
 
-Runs every faction as AI for up to the given simulated seconds, printing map style and size,
+Runs every faction as AI for up to the given simulated seconds, printing map style, silhouette and size,
 city positions, periodic per-faction army summaries, and the result. `--difficulty` applies to
 all sides in headless mode. This is how the simulation is smoke-tested and tuned; 6-faction
 wars with one faction reduced to a last city can take several minutes to finish.

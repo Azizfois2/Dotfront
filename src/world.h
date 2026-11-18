@@ -6,10 +6,15 @@
 #define MAP_MARGIN 70.0f
 #define MAX_CELLS  (MAX_ROWS * MAX_COLS)
 
+/* Large-scale landmass template, independent of the terrain style. */
+enum { SHAPE_CONTINENT = 0, SHAPE_TWIN, SHAPE_ATOLL, SHAPE_FJORDS,
+       SHAPE_SCATTER, SHAPE_COUNT };
+
 typedef struct {
     int      cols, rows;       /* active grid */
     int      width, height;    /* active world size in pixels */
     int      style;            /* MAP_* */
+    int      shape;            /* SHAPE_* */
     uint8_t  terr[MAX_ROWS][MAX_COLS];
     float    elev[MAX_ROWS + 1][MAX_COLS + 1];
     float    forest[MAX_ROWS + 1][MAX_COLS + 1];
@@ -18,6 +23,7 @@ typedef struct {
 
 int     world_city_target(int players);
 const char *world_style_name(int style);
+const char *world_shape_name(int shape);
 void    world_generate(World *w, uint32_t seed, int players,
                        Vec2 *city_pos, int *out_count);
 uint8_t world_terrain_at(const World *w, float x, float y);

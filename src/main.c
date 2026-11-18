@@ -33,9 +33,9 @@ static int run_headless(uint32_t seed, float seconds, int diff, int players) {
     int tcount[T_COUNT] = {0};
     for (int r2 = 0; r2 < g.w.rows; r2++)
         for (int c2 = 0; c2 < g.w.cols; c2++) tcount[g.w.terr[r2][c2]]++;
-    printf("difficulty %s, players %d, map %s %dx%d (%d cols x %d rows)\n",
+    printf("difficulty %s, players %d, map %s / %s %dx%d (%d cols x %d rows)\n",
            diff_name(diff), g.players, world_style_name(g.w.style),
-           g.w.width, g.w.height, g.w.cols, g.w.rows);
+           world_shape_name(g.w.shape), g.w.width, g.w.height, g.w.cols, g.w.rows);
     printf("seed %u: %d cities  terrain water %d plains %d forest %d hill %d mountain %d\n",
            seed, g.ncity, tcount[T_WATER], tcount[T_PLAINS], tcount[T_FOREST],
            tcount[T_HILL], tcount[T_MOUNTAIN]);
@@ -104,6 +104,7 @@ typedef struct {
     Vec2 press_world;
     int press_x, press_y;
     int last_mx, last_my;
+    int edge_armed;             /* ignore edge scroll until the mouse is used */
     int path_active;
     Vec2 path[VIEW_PATH_MAX];
     int plen;
@@ -136,10 +137,32 @@ static Vec2 mouse_world(const View *v, int mx, int my) {
 static void reset_view(View *v, const Game *g) {
     float fit = fmaxf((float)v->w / (float)g->w.width,
                       (float)v->h / (float)g->w.height);
-    v->zoom = fit * 0.90f;
+    /* Start close enough that the whole map does not fit on screen: players
+     * should have to pan, especially vertically, to see the whole shape.
+     * Centre on the local faction's starting city, not on the map centre. */
+    v->zoom = fmaxf(fit * 1.25f, 1.0f);
+    Vec2 cap = g->capital[g->local];
+    v->cam.x = cap.x - (float)v->w / v->zoom * 0.5f;
+    v->cam.y = cap.y - (float)v->h / v->zoom * 0.5f;
+    clamp_camera(v, g);
+}
+
+/* Spectators watch the whole map: no fog, and a full-map starting view. */
+static void view_whole_map(View *v, const Game *g) {
+    float fit = fmaxf((float)v->w / (float)g->w.width,
+                      (float)v->h / (float)g->w.height);
+    v->zoom = fit * 0.97f;
     v->cam.x = ((float)g->w.width - (float)v->w / v->zoom) * 0.5f;
     v->cam.y = ((float)g->w.height - (float)v->h / v->zoom) * 0.5f;
     clamp_camera(v, g);
+}
+
+static void begin_spectate(Game *g, View *v) {
+    g->eliminated = 0;
+    g->spectator = 1;
+    g->paused = 0;
+    view_whole_map(v, g);
+    game_notice(g, "SPECTATING - NO FOG - Q QUIT");
 }
 
 static void apply_path(Game *g, Input *in) {
@@ -167,7 +190,8 @@ static void submit_stage(Game *g, Input *in) {
 static void reset_after_load(Game *g, View *v, Renderer *r, Input *in) {
     render_free(r);
     render_init(r, g);
-    reset_view(v, g);
+    if (g->spectator) view_whole_map(v, g);
+    else reset_view(v, g);
     in->plen = 0;
     in->path_active = 0;
     clear_stage(in);
@@ -204,6 +228,20 @@ static void play_sfx(Game *g, Platform *plat, double now) {
 static void handle_key(Game *g, View *v, Renderer *r, Input *in,
                        PlatKey key, uint32_t *seed, int *running, int *ai_diff,
                        int *players) {
+    if (g->eliminated) {
+        if (key == PK_SPACE) {
+            begin_spectate(g, v);
+            g->sfx |= (uint16_t)SFX_UI;
+        } else if (key == PK_R) {
+            new_match(g, v, r, in, seed, ai_diff, *players);
+            printf("new game, %d factions, seed %u, map %s / %s, AI %s\n",
+                   *players, *seed, world_style_name(g->w.style),
+                   world_shape_name(g->w.shape), diff_name(*ai_diff));
+        } else if (key == PK_Q) {
+            *running = 0;
+        }
+        return;
+    }
     switch (key) {
     case PK_ESC:
         if (g->menu) *running = 0;
@@ -242,8 +280,9 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
             if (n > MAX_PLAYERS) n = 2;
             *players = n;
             new_match(g, v, r, in, seed, ai_diff, *players);
-            printf("new game, %d factions, seed %u, map %s\n",
-                   *players, *seed, world_style_name(g->w.style));
+            printf("new game, %d factions, seed %u, map %s / %s\n",
+                   *players, *seed, world_style_name(g->w.style),
+                   world_shape_name(g->w.shape));
         }
         break;
     case PK_1:
@@ -259,8 +298,9 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
         break;
     case PK_R:
         new_match(g, v, r, in, seed, ai_diff, *players);
-        printf("new game, %d factions, seed %u, map %s, AI %s\n",
-               *players, *seed, world_style_name(g->w.style), diff_name(*ai_diff));
+        printf("new game, %d factions, seed %u, map %s / %s, AI %s\n",
+               *players, *seed, world_style_name(g->w.style),
+               world_shape_name(g->w.shape), diff_name(*ai_diff));
         break;
     case PK_M:
         g->sound_on = !g->sound_on;
@@ -268,7 +308,7 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
         game_notice(g, g->sound_on ? "SOUND ON" : "SOUND OFF");
         break;
     case PK_F5:
-        if (!g->menu && g->winner < 0) {
+        if (!g->menu && !g->eliminated && g->winner < 0) {
             if (game_save(g, SAVE_PATH)) {
                 g->save_available = 1;
                 g->sfx |= (uint16_t)SFX_UI;
@@ -373,18 +413,23 @@ int main(int argc, char **argv) {
         g.ai_enabled[0] = 1;
         g.menu = 0;
         g.paused = 0;
+        g.spectator = 1;
     }
-    printf("WAR OF DOTS (C) - seed %u, %d factions, %s %dx%d, %d cities, AI %s%s\n",
-           seed, g.players, world_style_name(g.w.style), g.w.width, g.w.height,
+    printf("WAR OF DOTS (C) - seed %u, %d factions, %s / %s %dx%d, %d cities, AI %s%s\n",
+           seed, g.players, world_style_name(g.w.style),
+           world_shape_name(g.w.shape), g.w.width, g.w.height,
            g.ncity, diff_name(ai_diff), spectate ? ", spectating" : "");
 
     Renderer r;
     render_init(&r, &g);
 
     View v = { .w = WIN_W, .h = WIN_H };
-    reset_view(&v, &g);
+    if (g.spectator) view_whole_map(&v, &g);
+    else reset_view(&v, &g);
     Input in;
     memset(&in, 0, sizeof(in));
+    in.last_mx = -1;
+    in.last_my = -1;
 
     int running = 1;
     double last = plat_time();
@@ -502,6 +547,8 @@ int main(int argc, char **argv) {
                         in.last_stage_pt = w;
                     }
                 }
+                if (mx > 12 && mx < fb.w - 12 && my > 12 && my < fb.h - 12)
+                    in.edge_armed = 1;
                 in.last_mx = mx;
                 in.last_my = my;
                 break;
@@ -546,10 +593,31 @@ int main(int argc, char **argv) {
         /* A is also "select all"; camera pan only while held is fine, but avoid
          * panning on a quick tap: only pan if the key is still down next frames. */
 
+        /* edge scrolling: push the camera when the cursor rests on a border */
+        if (!g.menu && g.winner < 0 && !in.middle_down && in.edge_armed &&
+            in.last_mx >= 0 && in.last_my >= 0) {
+            const float edge = 9.0f;
+            float esp = 600.0f * dt / v.zoom;
+            if (in.last_mx < edge) v.cam.x -= esp;
+            if (in.last_mx > fb.w - edge) v.cam.x += esp;
+            if (in.last_my < edge) v.cam.y -= esp;
+            if (in.last_my > fb.h - edge) v.cam.y += esp;
+        }
+
         clamp_camera(&v, &g);
         game_update(&g, dt);
         for (int p = 0; p < g.players; p++)
             if (g.ai_enabled[p]) ai_update(&g, p, dt);
+
+        /* Local faction wiped out while other AI factions still fight:
+         * stop the simulation and offer restart / fog-free spectating. */
+        if (!g.menu && g.winner < 0 && !g.spectator && !g.eliminated &&
+            g.cities_owned[g.local] == 0 && g.units_owned[g.local] == 0) {
+            g.eliminated = 1;
+            g.paused = 1;
+            g.sfx |= (uint16_t)SFX_UI;
+            game_notice(&g, "ELIMINATED - SPACE TO SPECTATE");
+        }
 
         play_sfx(&g, plat, t);
 
