@@ -180,6 +180,9 @@ static PlatKey key_from_event(NSEvent *e) {
     CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
     CGContextSaveGState(ctx);
     CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
+    /* Our pixel buffer is top-down, while CGImage rows start at the bottom. */
+    CGContextTranslateCTM(ctx, 0, p->h);
+    CGContextScaleCTM(ctx, 1, -1);
     CGContextDrawImage(ctx, CGRectMake(0, 0, p->w, p->h), p->image);
     CGContextRestoreGState(ctx);
 }
