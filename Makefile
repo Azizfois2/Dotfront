@@ -47,6 +47,7 @@ sdl:
 # Native macOS build: Cocoa window/view, no SDL or Homebrew dependency.
 MACOS_ARCH ?=
 
+macos: CFLAGS += $(MACOS_ARCH)
 macos: $(CORE:.c=.o) src/platform_cocoa.o
 	$(CC) $(MACOS_ARCH) $(CORE:.c=.o) src/platform_cocoa.o -o wod_c -framework Cocoa -lm
 
