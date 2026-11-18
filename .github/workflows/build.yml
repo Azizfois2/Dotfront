@@ -51,11 +51,19 @@ jobs:
 
   windows:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Install mingw-w64
-        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - name: Install the 64-bit mingw-w64 compiler
+        timeout-minutes: 10
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=20
+          sudo apt-get install -y --no-install-recommends \
+            -o Acquire::Retries=2 -o Acquire::http::Timeout=20 \
+            gcc-mingw-w64-x86-64
       - name: Cross-compile Windows .exe
+        timeout-minutes: 5
         run: make windows
       - name: Check the executable
         run: file wod_c.exe && test -s wod_c.exe
