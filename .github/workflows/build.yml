@@ -95,7 +95,23 @@ jobs:
           ./wod_c --seed 3 &
           pid=$!
           sleep 4
-          screencapture -x macos-window.png || true
+          WID=$(swift - <<'SWIFT'
+          import CoreGraphics
+          let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+          if let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] {
+              for w in list {
+                  let name = (w[kCGWindowName as String] as? String) ?? ""
+                  let owner = (w[kCGWindowOwnerName as String] as? String) ?? ""
+                  if name.contains("WAR OF DOTS") || owner == "wod_c" {
+                      if let n = w[kCGWindowNumber as String] as? Int { print(n); break }
+                  }
+              }
+          }
+          SWIFT
+          )
+          if [ -n "$WID" ]; then
+            screencapture -x -l "$WID" macos-window.png
+          fi
           kill "$pid" || true
           test -s macos-window.png
       - name: Upload screenshot
