@@ -39,10 +39,13 @@ static void draw_minimap(FB *fb, const Game *g, const Renderer *r, const View *v
 
     for (int i = 0; i < g->ncity; i++) {
         const City *c = &g->cities[i];
+        if (game_seen_at(g, P_BLUE, c->pos.x, c->pos.y) < 0.05f) continue;
+        int owner = game_known_city_owner(g, P_BLUE, i);
+        if (owner < 0) owner = -1;
         int x = mx + (int)(c->pos.x / WORLD_W * (float)r->mw);
         int y = my + (int)(c->pos.y / WORLD_H * (float)r->mh);
         gfx_disc(fb, (float)x, (float)y, 2.6f, 0xFF15151A);
-        gfx_disc(fb, (float)x, (float)y, 1.9f, c->owner >= 0 ? owner_color(c->owner) : C_NEUTRAL);
+        gfx_disc(fb, (float)x, (float)y, 1.9f, owner_color(owner));
     }
     for (int i = 0; i < MAX_UNITS; i++) {
         const Unit *u = &g->units[i];
@@ -81,10 +84,18 @@ static void draw_topbar(FB *fb, const Game *g) {
     fmt_time(t, sizeof(t), g->time);
     gfx_text_center(fb, fb->w / 2, 16, t, 2, C_WHITE);
 
-    snprintf(buf, sizeof(buf), "CITIES %d  UNITS %d  RED",
-             g->cities_owned[P_RED], g->units_owned[P_RED]);
+    /* only scouted cities and currently visible red units are known */
+    snprintf(buf, sizeof(buf), "CITIES %d  SEEN %d  RED",
+             game_known_city_count(g, P_BLUE, P_RED),
+             game_visible_unit_count(g, P_BLUE, P_RED));
     gfx_text_right(fb, fb->w - 36, 16, buf, 2, C_RED);
     gfx_disc(fb, (float)fb->w - 22.0f, 23.0f, 7.0f, C_RED);
+
+    const char *dn = g->difficulty[P_RED] == DIFF_EASY ? "EASY"
+                   : g->difficulty[P_RED] == DIFF_HARD ? "HARD" : "NORMAL";
+    char dline[24];
+    snprintf(dline, sizeof(dline), "AI %s  (1/2/3)", dn);
+    gfx_text_right(fb, fb->w - 36, 32, dline, 1, 0xFFB98A8A);
 }
 
 static void draw_selection_info(FB *fb, const Game *g) {
@@ -110,7 +121,7 @@ static void draw_help(FB *fb, const Game *g) {
     gfx_fill_a(fb, 0, y, fb->w, h, 0xFF080B10, 200);
     const char *help =
         "LMB SELECT / BOX   RMB DRAW PATH   Z ALL   SPACE PAUSE   R RESTART   "
-        "WASD OR MMB PAN   WHEEL ZOOM";
+        "1/2/3 AI   WASD OR MMB PAN   WHEEL ZOOM";
     gfx_text(fb, 12, y + 8, help, 1, 0xFF8C9AAB);
 }
 

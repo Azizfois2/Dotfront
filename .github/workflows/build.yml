@@ -17,6 +17,12 @@ jobs:
         run: make
       - name: Headless simulation smoke test
         run: ./wod_c --headless 5 --seed 3 || test $? -eq 2
+      - name: AI resolves matches under fog
+        run: |
+          for s in 1 2 3 4; do
+            ./wod_c --headless 300 --seed $s > /tmp/ai_$s.txt || true
+            grep -q "WINS" /tmp/ai_$s.txt || { cat /tmp/ai_$s.txt; exit 1; }
+          done
       - name: Launch under Xvfb
         run: |
           sudo apt-get install -y xvfb

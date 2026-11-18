@@ -41,6 +41,9 @@ static PlatKey map_key(KeySym ks) {
     case XK_d: case XK_D: return PK_D;
     case XK_w: case XK_W: return PK_W;
     case XK_s: case XK_S: return PK_S;
+    case XK_1:        return PK_1;
+    case XK_2:        return PK_2;
+    case XK_3:        return PK_3;
     case XK_Left:     return PK_LEFT;
     case XK_Right:    return PK_RIGHT;
     case XK_Up:       return PK_UP;

@@ -21,6 +21,10 @@ typedef struct {
     int      units_owned[2];
     float    ai_timer[2];
     int      ai_wave[2];
+    int      difficulty[2];     /* DIFF_EASY / NORMAL / HARD */
+    /* what each player has learned about cities (fog-aware AI + HUD) */
+    int8_t   city_last_owner[2][MAX_CITIES];  /* -2 = never seen */
+    uint8_t  city_known[2][MAX_CITIES];
     /* fog of war: 0 = hidden, 255 = fully visible; seen keeps explored memory */
     uint8_t  vis[2][ROWS][COLS];
     uint8_t  seen[2][ROWS][COLS];
@@ -31,6 +35,9 @@ void game_update(Game *g, float dt);
 void game_update_vision(Game *g);
 float game_visibility_at(const Game *g, int player, float x, float y);
 float game_seen_at(const Game *g, int player, float x, float y);
+int  game_known_city_owner(const Game *g, int player, int city); /* -2 unknown */
+int  game_known_city_count(const Game *g, int player, int owner);
+int  game_visible_unit_count(const Game *g, int player, int owner);
 
 /* units.c */
 void units_update(Game *g, float dt);

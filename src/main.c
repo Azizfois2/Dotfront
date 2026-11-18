@@ -16,9 +16,14 @@
 /* Headless AI-vs-AI test                                              */
 /* ================================================================== */
 
-static int run_headless(uint32_t seed, float seconds) {
+static const char *diff_name(int d) {
+    return d == DIFF_EASY ? "easy" : (d == DIFF_HARD ? "hard" : "normal");
+}
+
+static int run_headless(uint32_t seed, float seconds, int diff) {
     Game g;
     game_init(&g, seed);
+    g.difficulty[0] = g.difficulty[1] = diff;
     g.ai_enabled[0] = 1;
     g.ai_enabled[1] = 1;
     g.paused = 0;
@@ -29,6 +34,7 @@ static int run_headless(uint32_t seed, float seconds) {
     for (int ci = 0; ci < g.ncity; ci++)
         printf("  city %2d  (%4.0f,%3.0f)  owner %d\n",
                ci, g.cities[ci].pos.x, g.cities[ci].pos.y, g.cities[ci].owner);
+    printf("difficulty %s\n", diff_name(diff));
     printf("seed %u: %d cities, blue cap (%.0f,%.0f) red cap (%.0f,%.0f)  "
            "terrain water %d plains %d forest %d hill %d mountain %d\n",
            seed, g.ncity, g.capital[0].x, g.capital[0].y,
@@ -129,7 +135,7 @@ static void apply_path(Game *g, Input *in) {
 }
 
 static void handle_key(Game *g, View *v, Renderer *r, Input *in,
-                       PlatKey key, uint32_t *seed, int *running) {
+                       PlatKey key, uint32_t *seed, int *running, int *ai_diff) {
     switch (key) {
     case PK_ESC:
         game_clear_selection(g);
@@ -140,17 +146,25 @@ static void handle_key(Game *g, View *v, Renderer *r, Input *in,
     case PK_SPACE:
         if (g->winner < 0) g->paused = !g->paused;
         break;
+    case PK_1:
+    case PK_2:
+    case PK_3:
+        *ai_diff = (int)key - (int)PK_1;
+        g->difficulty[P_RED] = *ai_diff;
+        printf("AI difficulty: %s\n", diff_name(*ai_diff));
+        break;
     case PK_R: {
         uint32_t s = (*seed) * 1664525u + 1013904223u;
         *seed = s;
         game_init(g, s);
+        g->difficulty[P_RED] = *ai_diff;
         render_free(r);
         render_init(r, g);
         reset_view(v, g);
         in->plen = 0;
         in->path_active = 0;
         in->dragging_box = 0;
-        printf("new game, seed %u\n", s);
+        printf("new game, seed %u, AI %s\n", s, diff_name(*ai_diff));
         break;
     }
     case PK_Q:
@@ -165,17 +179,28 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     uint32_t seed = (uint32_t)time(NULL);
     float headless = 0.0f;
+    int ai_diff = DIFF_NORMAL;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "--headless") && i + 1 < argc) headless = (float)atof(argv[++i]);
-        else if (!strcmp(argv[i], "--help")) {
-            printf("usage: %s [--seed N] [--headless SECONDS]\n"
+        else if (!strcmp(argv[i], "--difficulty") && i + 1 < argc) {
+            const char *d = argv[++i];
+            if (!strcmp(d, "easy")) ai_diff = DIFF_EASY;
+            else if (!strcmp(d, "normal")) ai_diff = DIFF_NORMAL;
+            else if (!strcmp(d, "hard")) ai_diff = DIFF_HARD;
+            else {
+                fprintf(stderr, "unknown difficulty '%s' (easy, normal, hard)\n", d);
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--help")) {
+            printf("usage: %s [--seed N] [--headless SECONDS] [--difficulty easy|normal|hard]\n"
                    "  default        play blue vs the offline red AI\n"
-                   "  --headless N   run AI vs AI for N simulated seconds\n", argv[0]);
+                   "  --headless N   run AI vs AI for N simulated seconds\n"
+                   "  --difficulty   red AI profile (also 1/2/3 in game)\n", argv[0]);
             return 0;
         }
     }
-    if (headless > 0.0f) return run_headless(seed, headless);
+    if (headless > 0.0f) return run_headless(seed, headless, ai_diff);
 
     Platform *plat = plat_open("WAR OF DOTS - C", WIN_W, WIN_H);
     if (!plat) {
@@ -187,7 +212,8 @@ int main(int argc, char **argv) {
     Game g;
     game_init(&g, seed);
     g.ai_enabled[1] = 1;
-    printf("WAR OF DOTS (C) - seed %u, %d cities\n", seed, g.ncity);
+    g.difficulty[P_RED] = ai_diff;
+    printf("WAR OF DOTS (C) - seed %u, %d cities, AI %s\n", seed, g.ncity, diff_name(ai_diff));
 
     Renderer r;
     render_init(&r, &g);
@@ -211,7 +237,7 @@ int main(int argc, char **argv) {
                 if (ev.key > PK_NONE && ev.key < PK_COUNT && !in.down[ev.key]) {
                     in.down[ev.key] = 1;
                     if (ev.key == PK_SHIFT) in.shift_down = 1;
-                    else handle_key(&g, &v, &r, &in, ev.key, &seed, &running);
+                    else handle_key(&g, &v, &r, &in, ev.key, &seed, &running, &ai_diff);
                 }
                 break;
             case PEV_KEYUP:

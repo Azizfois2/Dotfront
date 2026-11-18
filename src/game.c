@@ -36,6 +36,10 @@ void game_init(Game *g, uint32_t seed) {
     memset(g, 0, sizeof(*g));
     g->sel_city = -1;
     g->winner = -1;
+    g->difficulty[0] = g->difficulty[1] = DIFF_NORMAL;
+    for (int p2 = 0; p2 < 2; p2++)
+        for (int i2 = 0; i2 < MAX_CITIES; i2++)
+            g->city_last_owner[p2][i2] = -2;
 
     Vec2 pos[MAP_CITIES];
     int n = 0;
@@ -189,6 +193,16 @@ static void update_vision(Game *g, int player) {
         for (int c = 0; c < COLS; c++)
             if (g->vis[player][r][c] > g->seen[player][r][c])
                 g->seen[player][r][c] = g->vis[player][r][c];
+
+    /* remember the last owner seen for each city (stale intel is still intel) */
+    for (int i = 0; i < g->ncity; i++) {
+        int c = (int)clampf(g->cities[i].pos.x / CELL, 0, COLS - 1);
+        int r = (int)clampf(g->cities[i].pos.y / CELL, 0, ROWS - 1);
+        if (g->vis[player][r][c] > 26) {
+            g->city_known[player][i] = 1;
+            g->city_last_owner[player][i] = (int8_t)g->cities[i].owner;
+        }
+    }
 }
 
 void game_update_vision(Game *g) {
@@ -214,6 +228,28 @@ float game_visibility_at(const Game *g, int player, float x, float y) {
 
 float game_seen_at(const Game *g, int player, float x, float y) {
     return grid_bilinear(g->seen[player], x, y);
+}
+
+int game_known_city_owner(const Game *g, int player, int city) {
+    if (city < 0 || city >= g->ncity || !g->city_known[player][city]) return -2;
+    return g->city_last_owner[player][city];
+}
+
+int game_known_city_count(const Game *g, int player, int owner) {
+    int n = 0;
+    for (int i = 0; i < g->ncity; i++)
+        if (game_known_city_owner(g, player, i) == owner) n++;
+    return n;
+}
+
+int game_visible_unit_count(const Game *g, int player, int owner) {
+    int n = 0;
+    for (int i = 0; i < MAX_UNITS; i++) {
+        const Unit *u = &g->units[i];
+        if (!u->alive || u->owner != owner) continue;
+        if (owner == player || game_visibility_at(g, player, u->pos.x, u->pos.y) >= 0.25f) n++;
+    }
+    return n;
 }
 
 /* ------------------------------------------------------------------ */

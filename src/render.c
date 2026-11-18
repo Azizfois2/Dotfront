@@ -171,9 +171,19 @@ static void draw_city(FB *fb, const Game *g, const View *v, int idx) {
     float r = CITY_R * z;
     if (s.x < -140.0f * z || s.y < -140.0f * z ||
         s.x > (float)fb->w + 140.0f * z || s.y > (float)fb->h + 140.0f * z) return;
+    if (game_seen_at(g, P_BLUE, c->pos.x, c->pos.y) < 0.05f) return;
 
-    if (c->owner >= 0) {
-        gfx_disc_a(fb, s.x, s.y, 110.0f * z, owner_color(c->owner), 18);
+    /* current owner only while the city is actually in sight; otherwise show
+     * the last owner the player scouted (or neutral if never scouted). */
+    int shown_owner = c->owner;
+    float vis = game_visibility_at(g, P_BLUE, c->pos.x, c->pos.y);
+    if (vis < 0.18f) {
+        shown_owner = game_known_city_owner(g, P_BLUE, idx);
+        if (shown_owner < 0) shown_owner = -1;
+    }
+
+    if (shown_owner >= 0) {
+        gfx_disc_a(fb, s.x, s.y, 110.0f * z, owner_color(shown_owner), 18);
     }
 
     /* flag */
@@ -181,7 +191,7 @@ static void draw_city(FB *fb, const Game *g, const View *v, int idx) {
     float pole_x = s.x, base_y = s.y - r * 0.5f, top_y = base_y - pole_h;
     gfx_line(fb, pole_x, base_y, pole_x, top_y, fmaxf(1.0f, 2.0f * z), 0xFF33333C);
     float fw = 18.0f * z, fh = 12.0f * z;
-    uint32_t fc = c->owner >= 0 ? owner_color(c->owner) : C_NEUTRAL;
+    uint32_t fc = shown_owner >= 0 ? owner_color(shown_owner) : C_NEUTRAL;
     gfx_tri(fb, pole_x, top_y, pole_x + fw, top_y + fh * 0.5f,
             pole_x, top_y + fh, fc);
     gfx_line(fb, pole_x, top_y, pole_x + fw, top_y + fh * 0.5f, 1.0f, 0xFF202026);
@@ -189,12 +199,13 @@ static void draw_city(FB *fb, const Game *g, const View *v, int idx) {
 
     /* base disc */
     gfx_disc(fb, s.x, s.y, r + 2.0f, 0xFF1A1A20);
-    gfx_disc(fb, s.x, s.y, r, c->owner >= 0 ? owner_dark(c->owner) : 0xFF8A8A8A);
+    gfx_disc(fb, s.x, s.y, r, shown_owner >= 0 ? owner_dark(shown_owner) : 0xFF8A8A8A);
     gfx_disc(fb, s.x, s.y, r * 0.62f, fc);
     gfx_disc(fb, s.x, s.y, r * 0.22f, 0xFFF7F1DF);
 
     /* capture progress */
-    if (c->cap > 0.001f && c->cap_owner >= 0.0f && c->owner != (int)c->cap_owner) {
+    if (vis >= 0.18f && c->cap > 0.001f && c->cap_owner >= 0.0f &&
+        c->owner != (int)c->cap_owner) {
         int who = (int)c->cap_owner;
         gfx_arc(fb, s.x, s.y, r + 6.0f * z, fmaxf(1.5f, 3.0f * z),
                 -1.5707963f, -1.5707963f + c->cap * 6.2831853f, owner_color(who));

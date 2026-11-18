@@ -11,6 +11,7 @@ typedef enum {
     PK_NONE = 0,
     PK_SPACE, PK_ESC, PK_R, PK_Q, PK_Z,
     PK_A, PK_D, PK_W, PK_S,
+    PK_1, PK_2, PK_3,
     PK_LEFT, PK_RIGHT, PK_UP, PK_DOWN,
     PK_SHIFT,
     PK_COUNT

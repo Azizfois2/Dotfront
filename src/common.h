@@ -36,6 +36,9 @@
 enum { T_WATER, T_PLAINS, T_FOREST, T_HILL, T_MOUNTAIN, T_COUNT };
 enum { P_BLUE = 0, P_RED = 1 };
 
+/* AI profiles selectable with --difficulty or the 1/2/3 keys. */
+enum { DIFF_EASY = 0, DIFF_NORMAL = 1, DIFF_HARD = 2, DIFF_COUNT };
+
 typedef struct { float x, y; } Vec2;
 
 /* Player colours + neutrals, 0xAARRGGBB (alpha unused, kept for clarity). */

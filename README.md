@@ -18,12 +18,14 @@ platform SDK/headers.
 - Five terrain types with real gameplay effects: plains, forest, hill, water, impassable mountain
 - Selection (click, shift-add, box select), hand-drawn movement paths, and formation offsets
 - Fog of war with explored-terrain memory, terrain-scaled vision (hills see far, forests short),
-  enemy units hidden outside your sight, and a matching fogged minimap
+  enemy units and city ownership hidden outside your sight, and a matching fogged minimap
 - Mountain-aware routing: clear path segments are kept exactly as drawn, blocked ones are
   replaced by a BFS grid route so units never wedge themselves against a cliff
 - Cities: capture by presence/majority, unit production, rally points for new units
 - Supply system: units heal near friendly cities, starve far away or behind enemy lines
-- Offline AI that defends threatened cities, masses waves, and attacks the nearest target
+- Fog-respecting AI: it scouts unknown ground, remembers city owners, and defends only attacks
+  it can actually see
+- Three AI difficulty levels, selectable from the command line or with `1` / `2` / `3`
 - Camera pan/zoom, minimap, pause, restart, win screen
 - Headless AI-vs-AI mode for testing, balance work, and regression checks
 
@@ -31,7 +33,7 @@ platform SDK/headers.
 
 ```sh
 cd c_rts
-make            # Linux/X11, or macOS/SDL2
+make            # Linux/X11, or native macOS/Cocoa
 make windows    # Windows .exe (cross-compile with mingw-w64)
 make sdl        # optional SDL2 build on Linux -> wod_c_sdl
 ```
@@ -56,6 +58,7 @@ The Windows executable is `wod_c.exe`; everything else is identical.
 ./wod_c                 # Linux
 wod_c.exe               # Windows
 ./wod_c --seed 42       # reproducible map
+./wod_c --difficulty hard
 ```
 
 The game starts paused — press `SPACE` to begin.
@@ -66,6 +69,7 @@ The game starts paused — press `SPACE` to begin.
 | Left drag | Box-select your units |
 | Right drag | Draw a path for the selection (or a rally path for a selected city) |
 | `Z` | Select all your units |
+| `1` `2` `3` | Switch the red AI to easy / normal / hard |
 | `A` `D` / `W` `S`, arrows | Pan the camera |
 | Middle drag | Pan the camera |
 | Mouse wheel | Zoom around the cursor |
@@ -80,8 +84,10 @@ The game starts paused — press `SPACE` to begin.
   water 60 % / 50 %. Mountains cannot be crossed.
 - **Fog of war**: you only see what your dots and cities can see. Vision is 105 px on plains,
   165 px on hills, 80 px in forest, plus 200 px around your cities. Areas you have explored stay
-  dimly visible as terrain memory, but enemy dots disappear into the fog. City locations and
-  ownership are always known.
+  dimly visible as terrain memory, but enemy dots disappear into the fog. A city's flag and the
+  minimap keep showing the last owner you scouted; the red HUD counts only scouted cities and
+  currently visible red dots. The AI plays under the same fog: it must scout to find cities and
+  can only react to attacks it can see.
 - **Combat** is automatic: every dot attacks the closest enemy within range, once per frame,
   scaled by the terrain it stands on. There is no manual attack button.
 - **Cities** flip after 2 seconds when one side has more units inside the capture radius
@@ -91,10 +97,23 @@ The game starts paused — press `SPACE` to begin.
   60 dots per player. New dots follow the city's rally path if one was drawn.
 - **Win**: a player with no cities and no units loses. The match timer stops on the win screen.
 
+## AI difficulty
+
+The red AI has three profiles, chosen with `--difficulty easy|normal|hard` or switched live
+with `1`, `2`, `3`:
+
+- **Easy** decides every 1.8 s, defends with two units over a short radius, and attacks with
+  larger but less frequent waves.
+- **Normal** is the original opponent: a decision every 0.75 s, four defenders, waves of
+  `3 + cities`.
+- **Hard** reacts every 0.45 s, defends with six units over a wider radius, and commits up to
+  ten units per wave.
+
 ## Headless mode
 
 ```sh
 ./wod_c --headless 180 --seed 3
+./wod_c --headless 180 --seed 3 --difficulty hard
 ```
 
 Runs both sides as AI for up to 180 simulated seconds, printing map stats, city positions,
@@ -108,7 +127,7 @@ src/common.h   tuning constants, Vec2 helpers, Unit/City types, terrain enums
 src/world.h/c  noise, island generation, terrain queries, BFS router
 src/game.h/c   match setup, city capture/production, selection, player orders
 src/units.c    movement, separation, supply, combat
-src/ai.h/c     offline opponent (defend, gather, attack)
+src/ai.h/c     fog-aware opponent: scout, remember, defend, mass waves, attack
 src/render.h/c terrain pre-render, terrain blit, units, cities, paths, selection box
 src/hud.c      top bar, minimap, help, selection info, pause/win overlays
 src/gfx.h/c    framebuffer primitives: AA discs, thick lines, triangles, text
@@ -127,14 +146,11 @@ Rendering runs at 1280×720 but is resolution-independent — change `WIN_W`/`WI
 
 ## Known limitations / next steps
 
-- The AI has full map knowledge (fog applies to the player only).
 - Windows support is compile-tested via mingw-w64 but was not run on a Windows
   machine in this environment.
-- The native Cocoa backend was syntax-checked against stub AppKit headers but
-  not compiled or run on macOS hardware here. The SDL2 fallback (`make sdl`)
-  was built and run on Linux and can be used if the native build misbehaves.
-- One AI personality and no difficulty levels; it is deliberately aggressive.
+- The macOS Cocoa build is compiled, launched and screenshotted on a real macOS
+  runner by CI, but it has not been played on a Mac by a human yet.
 - No sound, no map/save loading, no network play.
-- The AI is tuned by simulation, not by long human playtesting.
+- The AI is tuned by headless simulation, not by long human playtesting.
 - The renderer only needs a pixel buffer, so new platforms implement the small
   `src/platform.h` interface rather than touching the game or HUD.

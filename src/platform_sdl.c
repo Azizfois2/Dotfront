@@ -25,6 +25,9 @@ static PlatKey map_key(SDL_Keycode k) {
     case SDLK_d:        return PK_D;
     case SDLK_w:        return PK_W;
     case SDLK_s:        return PK_S;
+    case SDLK_1:        return PK_1;
+    case SDLK_2:        return PK_2;
+    case SDLK_3:        return PK_3;
     case SDLK_LEFT:     return PK_LEFT;
     case SDLK_RIGHT:    return PK_RIGHT;
     case SDLK_UP:       return PK_UP;
